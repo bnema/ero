@@ -1,6 +1,7 @@
 package tui
 
 import (
+	"fmt"
 	"strings"
 
 	"charm.land/lipgloss/v2"
@@ -14,10 +15,16 @@ type reviewPaneLineStyle interface {
 	Render(...string) string
 }
 
+type reviewPaneStyleFunc func(string) string
+
+func (f reviewPaneStyleFunc) Render(values ...string) string {
+	return f(strings.Join(values, ""))
+}
+
 type reviewPaneRenderer interface {
 	Render(presenter.ReviewRow, int, render.ReviewVisualState) string
 	Gutter(presenter.ReviewRow, int, render.ReviewVisualState) string
-	Style(int, render.ReviewVisualState) reviewPaneLineStyle
+	Style(int, render.ReviewVisualState) lipgloss.Style
 }
 
 type reviewPaneWidthSetter interface {
@@ -31,11 +38,12 @@ type ReviewPaneConfig struct {
 }
 
 type ReviewPane struct {
-	width    int
-	height   int
-	yOffset  int
-	rows     []presenter.ReviewRow
-	renderer reviewPaneRenderer
+	width       int
+	height      int
+	yOffset     int
+	rows        []presenter.ReviewRow
+	renderer    reviewPaneRenderer
+	visualState render.ReviewVisualState
 }
 
 func NewReviewPane(config ReviewPaneConfig) ReviewPane {
@@ -86,6 +94,22 @@ func (p *ReviewPane) YOffset() int {
 	return p.yOffset
 }
 
+func (p *ReviewPane) GotoTop() {
+	p.SetYOffset(0)
+}
+
+func (p *ReviewPane) SetVisualState(state render.ReviewVisualState) {
+	p.visualState = state
+}
+
+func (p *ReviewPane) GetContent() string {
+	parts := make([]string, len(p.rows))
+	for i, row := range p.rows {
+		parts[i] = fmt.Sprintf("%s:%d:%d:%d:%s", row.Kind, row.FileIndex, row.SectionIndex, row.LineIndex, row.Message)
+	}
+	return strings.Join(parts, "\n")
+}
+
 func (p *ReviewPane) ScrollPercent() float64 {
 	if len(p.rows) <= p.height || p.maxYOffset() == 0 {
 		return 1.0
@@ -107,7 +131,11 @@ func (p *ReviewPane) KeepVisible(row int) {
 	}
 }
 
-func (p ReviewPane) View(state render.ReviewVisualState) string {
+func (p ReviewPane) View(states ...render.ReviewVisualState) string {
+	state := p.visualState
+	if len(states) > 0 {
+		state = states[0]
+	}
 	height := max(p.height, 0)
 	if height == 0 || p.width == 0 {
 		return ""
@@ -132,9 +160,7 @@ func (p ReviewPane) renderRow(row presenter.ReviewRow, rowIndex int, state rende
 	gutter := p.renderer.Gutter(row, rowIndex, state)
 	content := p.truncateContent(p.renderer.Render(row, rowIndex, state), lipgloss.Width(gutter))
 	style := p.renderer.Style(rowIndex, state)
-	if style != nil {
-		content = style.Render(content)
-	}
+	content = style.Render(content)
 	return gutter + content
 }
 

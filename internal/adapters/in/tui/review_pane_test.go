@@ -5,6 +5,7 @@ import (
 	"strings"
 	"testing"
 
+	"charm.land/lipgloss/v2"
 	"github.com/stretchr/testify/assert"
 
 	"ero/internal/adapters/in/tui/presenter"
@@ -131,8 +132,8 @@ func (f reviewPaneRendererFunc) Gutter(row presenter.ReviewRow, rowIndex int, st
 	return "  "
 }
 
-func (f reviewPaneRendererFunc) Style(rowIndex int, state render.ReviewVisualState) reviewPaneLineStyle {
-	return reviewPaneStyle{}
+func (f reviewPaneRendererFunc) Style(rowIndex int, state render.ReviewVisualState) lipgloss.Style {
+	return lipgloss.NewStyle()
 }
 
 type widthTrackingPaneRenderer struct {
@@ -151,8 +152,8 @@ func (r *widthTrackingPaneRenderer) Gutter(row presenter.ReviewRow, rowIndex int
 	return "  "
 }
 
-func (r *widthTrackingPaneRenderer) Style(rowIndex int, state render.ReviewVisualState) reviewPaneLineStyle {
-	return reviewPaneStyle{}
+func (r *widthTrackingPaneRenderer) Style(rowIndex int, state render.ReviewVisualState) lipgloss.Style {
+	return lipgloss.NewStyle()
 }
 
 type plainPaneRenderer struct{}
@@ -165,10 +166,6 @@ func (plainPaneRenderer) Gutter(row presenter.ReviewRow, rowIndex int, state ren
 	return "  "
 }
 
-func (plainPaneRenderer) Style(rowIndex int, state render.ReviewVisualState) reviewPaneLineStyle {
-	return reviewPaneStyle{}
+func (plainPaneRenderer) Style(rowIndex int, state render.ReviewVisualState) lipgloss.Style {
+	return lipgloss.NewStyle()
 }
-
-type reviewPaneStyle struct{}
-
-func (reviewPaneStyle) Render(s ...string) string { return strings.Join(s, "") }

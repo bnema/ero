@@ -6,6 +6,7 @@ import (
 
 	"charm.land/lipgloss/v2"
 
+	"ero/internal/adapters/in/tui/presenter"
 	"ero/internal/adapters/in/tui/render"
 	"ero/internal/core"
 )
@@ -28,6 +29,17 @@ type InlineCommentEditor struct {
 	FilePath string
 	Range    core.ReviewLineRange
 	Editor   CommentEditor
+}
+
+func (e *InlineCommentEditor) PresenterAnnotation(availableWidth int) presenter.ReviewEditorAnnotation {
+	if e == nil {
+		return presenter.ReviewEditorAnnotation{}
+	}
+	return presenter.ReviewEditorAnnotation{
+		FilePath:  e.FilePath,
+		Range:     e.Range,
+		LineCount: len(strings.Split(e.Editor.ViewWithWidth(availableWidth), "\n")),
+	}
 }
 
 func (c ReviewDocument) RenderWithAnnotations(files []core.ReviewFile, selectedFile, selectedContext int, annotations ReviewAnnotations) ReviewDocumentRender {
