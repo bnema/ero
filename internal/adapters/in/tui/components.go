@@ -2,41 +2,26 @@ package tui
 
 import (
 	"ero/internal/adapters/in/tui/component"
-	"ero/internal/core"
+	"ero/internal/adapters/in/tui/presenter"
 )
 
-type ReviewDocument struct {
-	width    int
-	document component.ReviewDocument
-}
-
-type ReviewDocumentRender = component.ReviewDocumentRender
-type ReviewRowKind = component.ReviewRowKind
+type ReviewRowKind = presenter.ReviewRowKind
 
 const (
-	ReviewRowKindBlank    = component.ReviewRowKindBlank
-	ReviewRowKindFile     = component.ReviewRowKindFile
-	ReviewRowKindRule     = component.ReviewRowKindRule
-	ReviewRowKindLine     = component.ReviewRowKindLine
-	ReviewRowKindExpander = component.ReviewRowKindExpander
-	ReviewRowKindMessage  = component.ReviewRowKindMessage
+	ReviewRowKindBlank        = presenter.ReviewRowKindBlank
+	ReviewRowKindFile         = presenter.ReviewRowKindFile
+	ReviewRowKindRule         = presenter.ReviewRowKindRule
+	ReviewRowKindLine         = presenter.ReviewRowKindLine
+	ReviewRowKindExpander     = presenter.ReviewRowKindExpander
+	ReviewRowKindMessage      = presenter.ReviewRowKindMessage
+	ReviewRowKindComment      = presenter.ReviewRowKindComment
+	ReviewRowKindRemoteThread = presenter.ReviewRowKindRemoteThread
+	ReviewRowKindEditor       = presenter.ReviewRowKindEditor
 )
 
-type ReviewRow = component.ReviewRow
-type ReviewAnchors = component.ReviewAnchors
-type ReviewLineAnchor = component.ReviewLineAnchor
-
-func NewReviewDocument(width int) ReviewDocument {
-	return ReviewDocument{width: width, document: component.NewReviewDocument(width, enterKeyLabel())}
-}
-
-func (c ReviewDocument) Render(files []core.ReviewFile, selectedContext int) string {
-	return c.document.Render(files, selectedContext)
-}
-
-func (c ReviewDocument) RenderWithAnchors(files []core.ReviewFile, selectedFile, selectedContext int) ReviewDocumentRender {
-	return c.document.RenderWithAnchors(files, selectedFile, selectedContext)
-}
+type ReviewRow = presenter.ReviewRow
+type ReviewAnchors = presenter.ReviewAnchors
+type ReviewLineAnchor = presenter.ReviewLineAnchor
 
 type StatusModel = component.StatusModel
 type StatusBar = component.StatusBar

@@ -4,8 +4,8 @@ import (
 	"strings"
 	"testing"
 
-	viewport "charm.land/bubbles/v2/viewport"
 	tea "charm.land/bubbletea/v2"
+	"ero/internal/adapters/in/tui/presenter"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
@@ -26,7 +26,7 @@ func TestReviewDocumentCharacterizesCurrentVisualChromeAndAnnotations(t *testing
 	})
 	require.NoError(t, err)
 
-	rendered := NewReviewDocument(100).RenderWithAnnotations([]core.ReviewFile{{
+	files := []core.ReviewFile{{
 		Path: "demo.go",
 		Sections: []core.ReviewSection{
 			{ID: "hidden-start", Kind: core.SectionKindContext, Lines: []core.ReviewLine{{OldLineNumber: 9, NewLineNumber: 9, Content: "hidden before", Kind: core.LineKindUnchanged}}},
@@ -35,7 +35,10 @@ func TestReviewDocumentCharacterizesCurrentVisualChromeAndAnnotations(t *testing
 				{OldLineNumber: 11, Content: "removedCall()", Kind: core.LineKindDeleted},
 			}},
 		},
-	}}, 0, 0, ReviewAnnotations{
+	}}
+	inlineEditor := InlineCommentEditor{FilePath: "demo.go", Range: core.ReviewLineRange{Start: core.ReviewLineRef{OldLineNumber: 11, Kind: core.LineKindDeleted}, End: core.ReviewLineRef{OldLineNumber: 11, Kind: core.LineKindDeleted}}, Editor: NewCommentEditor(80)}
+	editorAnnotation := inlineEditor.PresenterAnnotation(86)
+	rendered := renderReviewForTest(files, 100, 0, 0, presenter.ReviewAnnotations{
 		Comments: draft.Comments(),
 		RemoteThreads: []core.RemoteReviewThread{{
 			ProviderID: "github",
@@ -43,11 +46,7 @@ func TestReviewDocumentCharacterizesCurrentVisualChromeAndAnnotations(t *testing
 			Range:      core.ReviewLineRange{Start: core.ReviewLineRef{OldLineNumber: 11, Kind: core.LineKindDeleted}, End: core.ReviewLineRef{OldLineNumber: 11, Kind: core.LineKindDeleted}},
 			Comments:   []core.RemoteReviewComment{{Author: "octocat", Body: "remote note"}},
 		}},
-		Editor: &InlineCommentEditor{
-			FilePath: "demo.go",
-			Range:    core.ReviewLineRange{Start: core.ReviewLineRef{OldLineNumber: 11, Kind: core.LineKindDeleted}, End: core.ReviewLineRef{OldLineNumber: 11, Kind: core.LineKindDeleted}},
-			Editor:   NewCommentEditor(80),
-		},
+		Editor: &editorAnnotation,
 	})
 
 	view := stripANSI(rendered.Content)
@@ -99,11 +98,8 @@ func TestModelCharacterizesCurrentCursorSelectionAndCommentGutters(t *testing.T)
 	start, end, selected := model.selectedRange()
 	require.True(t, selected)
 	assert.Equal(t, start+1, end)
-	assert.Contains(t, model.reviewGutter(viewport.GutterContext{Index: model.cursorRow}), nerdIconArrowRight)
-	assert.Contains(t, model.reviewGutter(viewport.GutterContext{Index: start}), "┃")
-
 	commentRow := model.reviewAnchors.LineRows[ReviewLineAnchor{FileIndex: 0, SectionIndex: 0, LineIndex: 3}]
-	assert.Contains(t, model.reviewGutter(viewport.GutterContext{Index: commentRow}), "╭")
+	require.GreaterOrEqual(t, commentRow, 0)
 
 	view := stripANSI(model.View().Content)
 	assert.Contains(t, view, nerdIconArrowRight)

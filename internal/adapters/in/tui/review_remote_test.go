@@ -5,11 +5,12 @@ import (
 
 	"github.com/stretchr/testify/require"
 
+	"ero/internal/adapters/in/tui/presenter"
 	"ero/internal/core"
 )
 
 func TestRemoteReviewAnnotations(t *testing.T) {
-	rendered := NewReviewDocument(80).RenderWithAnnotations([]core.ReviewFile{reviewFile("demo.go", "package main")}, -1, -1, ReviewAnnotations{
+	rendered := renderReviewForTest([]core.ReviewFile{reviewFile("demo.go", "package main")}, 80, -1, -1, presenter.ReviewAnnotations{
 		RemoteThreads: []core.RemoteReviewThread{{
 			ProviderID: "github",
 			FilePath:   "demo.go",
@@ -24,7 +25,7 @@ func TestRemoteReviewAnnotations(t *testing.T) {
 }
 
 func TestRemoteReviewAnnotationsUnmapped(t *testing.T) {
-	rendered := NewReviewDocument(80).RenderWithAnnotations([]core.ReviewFile{reviewFile("demo.go", "package main")}, -1, -1, ReviewAnnotations{
+	rendered := renderReviewForTest([]core.ReviewFile{reviewFile("demo.go", "package main")}, 80, -1, -1, presenter.ReviewAnnotations{
 		RemoteThreads: []core.RemoteReviewThread{{ProviderID: "github", Unmapped: true, Comments: []core.RemoteReviewComment{{Body: "orphaned"}}}},
 	})
 	view := stripANSI(rendered.Content)

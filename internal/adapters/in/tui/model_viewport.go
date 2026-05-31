@@ -3,12 +3,8 @@ package tui
 import (
 	"strings"
 
-	viewport "charm.land/bubbles/v2/viewport"
-	"charm.land/lipgloss/v2"
-
 	"ero/internal/adapters/in/tui/presenter"
 	"ero/internal/adapters/in/tui/render"
-	"ero/internal/adapters/in/tui/theme"
 	"ero/internal/core"
 )
 
@@ -215,45 +211,6 @@ func (m *Model) updateActiveFileFromCursor() {
 	m.activeFilePath = m.files[fileIndex].Path
 }
 
-func (m Model) reviewGutter(info viewport.GutterContext) string {
-	if info.Soft || info.Index >= len(m.reviewRows) {
-		return "  "
-	}
-	start, end, selected := m.selectedRange()
-	if marker, ok := m.commentRangeGutter(info.Index); ok {
-		return marker
-	}
-	if info.Index == m.cursorRow {
-		return theme.StatusKeyStyle.Render(nerdIconArrowRight + " ")
-	}
-	if selected && info.Index >= start && info.Index <= end {
-		return theme.SelectedExpander.Render("┃ ")
-	}
-	return "  "
-}
-
-func (m Model) reviewLineStyle(rowIndex int) lipgloss.Style {
-	start, end, selected := m.selectedRange()
-	if selected && rowIndex >= start && rowIndex <= end {
-		return theme.SelectedRowStyle
-	}
-	if rowIndex == m.cursorRow {
-		return theme.CursorRowStyle
-	}
-	if m.rowHasCommentRange(rowIndex) || m.rowHasActiveEditorRange(rowIndex) {
-		return theme.CommentRangeRowStyle
-	}
-	return lipgloss.NewStyle()
-}
-
-func (m Model) commentRangeGutter(rowIndex int) (string, bool) {
-	marker, ok := m.commentRangeMarker(rowIndex)
-	if !ok {
-		return "", false
-	}
-	return commentMarkerString(marker), true
-}
-
 func (m Model) commentRangeMarker(rowIndex int) (render.CommentMarker, bool) {
 	if rowIndex < 0 || rowIndex >= len(m.reviewRows) {
 		return "", false
@@ -274,17 +231,6 @@ func (m Model) commentRangeMarker(rowIndex int) (render.CommentMarker, bool) {
 		}
 	}
 	return "", false
-}
-
-func commentMarkerString(marker render.CommentMarker) string {
-	switch marker {
-	case render.CommentMarkerStart:
-		return inlineCommentIconStyle.Render("╭ ")
-	case render.CommentMarkerEnd:
-		return inlineCommentIconStyle.Render("╰ ")
-	default:
-		return inlineCommentIconStyle.Render("│ ")
-	}
 }
 
 func (m Model) rowHasCommentRange(rowIndex int) bool {
@@ -311,10 +257,6 @@ func (m Model) rowHasActiveEditorRange(rowIndex int) bool {
 	return row.Kind == ReviewRowKindLine && row.FilePath == m.commentEditor.FilePath && lineInReviewRange(row.Line, m.commentEditor.Range)
 }
 
-func commentBlockMarker(line core.ReviewLine, lineRange core.ReviewLineRange) string {
-	return commentMarkerString(commentBlockMarkerKind(line, lineRange))
-}
-
 func commentBlockMarkerKind(line core.ReviewLine, lineRange core.ReviewLineRange) render.CommentMarker {
 	if reviewLineMatchesRef(line, lineRange.Start) {
 		return render.CommentMarkerStart
@@ -323,6 +265,16 @@ func commentBlockMarkerKind(line core.ReviewLine, lineRange core.ReviewLineRange
 		return render.CommentMarkerEnd
 	}
 	return render.CommentMarkerBody
+}
+
+func reviewLineMatchesRef(line core.ReviewLine, ref core.ReviewLineRef) bool {
+	if ref.NewLineNumber > 0 && line.NewLineNumber == ref.NewLineNumber {
+		return true
+	}
+	if ref.OldLineNumber > 0 && line.OldLineNumber == ref.OldLineNumber {
+		return true
+	}
+	return false
 }
 
 func lineInReviewRange(line core.ReviewLine, lineRange core.ReviewLineRange) bool {

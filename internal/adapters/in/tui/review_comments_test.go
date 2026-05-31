@@ -7,6 +7,8 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"ero/internal/adapters/in/tui/presenter"
+	"ero/internal/adapters/in/tui/render"
 	"ero/internal/core"
 )
 
@@ -25,23 +27,19 @@ func TestReviewDocumentRendersCommentsAndEditorBelowAnchoredRange(t *testing.T) 
 	require.NoError(t, err)
 	editor := NewCommentEditor(80)
 
-	rendered := NewReviewDocument(80).RenderWithAnnotations([]core.ReviewFile{{
+	files := []core.ReviewFile{{
 		Path: "demo.go",
 		Sections: []core.ReviewSection{{ID: "changed", Kind: core.SectionKindChanged, Lines: []core.ReviewLine{
 			{NewLineNumber: 1, Content: "one", Kind: core.LineKindAdded},
 			{NewLineNumber: 2, Content: "two", Kind: core.LineKindAdded},
 			{NewLineNumber: 3, Content: "three", Kind: core.LineKindAdded},
 		}}},
-	}}, -1, -1, ReviewAnnotations{
+	}}
+	inlineEditor := InlineCommentEditor{FilePath: "demo.go", Range: core.ReviewLineRange{Start: core.ReviewLineRef{NewLineNumber: 3, Kind: core.LineKindAdded}, End: core.ReviewLineRef{NewLineNumber: 3, Kind: core.LineKindAdded}}, Editor: editor}
+	editorAnnotation := inlineEditor.PresenterAnnotation(68)
+	rendered := renderReviewForTest(files, 80, -1, -1, presenter.ReviewAnnotations{
 		Comments: draft.Comments(),
-		Editor: &InlineCommentEditor{
-			FilePath: "demo.go",
-			Range: core.ReviewLineRange{
-				Start: core.ReviewLineRef{NewLineNumber: 3, Kind: core.LineKindAdded},
-				End:   core.ReviewLineRef{NewLineNumber: 3, Kind: core.LineKindAdded},
-			},
-			Editor: editor,
-		},
+		Editor:   &editorAnnotation,
 	})
 
 	view := stripANSI(rendered.Content)
@@ -49,9 +47,9 @@ func TestReviewDocumentRendersCommentsAndEditorBelowAnchoredRange(t *testing.T) 
 	assert.Contains(t, view, "with one note")
 	assert.Contains(t, view, "#1")
 	assert.NotContains(t, view, "comment-1")
-	assert.Contains(t, rendered.Content, inlineCommentIconStyle.Render(nerdIconComment))
-	assert.Contains(t, rendered.Content, inlineCommentIDStyle.Render("#1"))
-	assert.Contains(t, rendered.Content, inlineCommentBodyStyle.Render("Looks good"))
+	assert.Contains(t, rendered.Content, render.InlineCommentIconStyle.Render(nerdIconComment))
+	assert.Contains(t, rendered.Content, render.InlineCommentIDStyle.Render("#1"))
+	assert.Contains(t, rendered.Content, render.InlineCommentBodyStyle.Render("Looks good"))
 	lines := strings.Split(view, "\n")
 	commentLine := lineContaining(t, lines, "Looks good")
 	editorLine := lineContaining(t, lines, "Add review comment")

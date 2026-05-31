@@ -148,7 +148,7 @@ Put reusable pieces under `internal/adapters/in/tui/component/`.
 Initial components:
 
 - `filelist` — changed files navigation and stats (standby; current TUI keeps one sequential viewport)
-- `reviewpane` — current file review sections
+- `reviewpane` — virtualized review document pane in `internal/adapters/in/tui/review_pane.go`
 - `searchpane` — floating file-find (`f`) and reference grep (`/`) over the review viewport
 - `contextbar` — expand above / below / all controls
 - `statusbar` — mode, file counts, branch info, hints
@@ -164,16 +164,18 @@ The root model should compose components instead of embedding all rendering and 
 
 ### Presenter layer
 
-`internal/adapters/in/tui/presenter/` converts core review data into render-friendly rows.
+`internal/adapters/in/tui/presenter/` converts core review data into a typed review document.
 
-This keeps:
+This projection is deliberately terminal-independent: no Bubble Tea, Bubbles, Lip Gloss, ANSI strings, or theme styles. It owns:
 
-- section flattening
-- row numbering
-- cursor mapping
-- visible action labels
+- section flattening into typed rows
+- file and line anchors
+- expander row indexes
+- selectable row metadata
+- annotation row placement for local comments, remote threads, and inline editors
+- per-file line-number widths and file stats
 
-out of both the core and the main Bubble Tea model.
+The presenter may depend on `core` domain types because it projects review-domain data for the TUI adapter, but it must not depend on rendering packages. This keeps cursor mapping, search jumps, selection/copy, comment ranges, and context expansion metadata out of both the core and terminal renderer.
 
 ### Render layer
 
@@ -183,7 +185,34 @@ out of both the core and the main Bubble Tea model.
 - diff backgrounds
 - syntax token painting
 - character highlight painting
-- truncation and width handling
+- review row rendering from presenter rows
+- context expander labels and selected-expander styling
+- annotation chrome for local comments, remote threads, and inline editor rows
+- cached rendering of expensive syntax-highlighted diff lines
+
+The render layer accepts typed presenter rows plus visual state. It must not rebuild the review projection, mutate core review data, or decide navigation behavior.
+
+### Virtualized review pane
+
+`internal/adapters/in/tui/review_pane.go` is the viewport replacement for the review document. It owns:
+
+- width, height, y-offset, scroll percent, and cursor visibility
+- visible-row selection for `View()`
+- gutter composition and content truncation
+- renderer width synchronization after resize
+
+The pane renders only visible rows. It receives a complete typed row list for anchors and cursor math, but it must not pre-render or store all styled review lines. Expander selection, cursor row, selected ranges, and comment-range markers are visual state passed to the renderer; cursor movement must not rebuild the projection just to update these highlights.
+
+### Invalidation rules
+
+The typed presenter document is rebuilt only when the review structure changes:
+
+- diff files are loaded or reloaded
+- context lines expand/collapse
+- local comments, remote threads, or the active editor change annotation rows
+- terminal width changes enough to affect editor wrapping or row metadata
+
+Simple cursor movement, selection changes, and nearest-expander highlight changes update visual state only. The syntax-highlighted line cache is cleared or replaced when diff content, syntax tokens, or width-sensitive line-number metadata changes.
 
 ## Highlighting design retrieved from `cue`
 

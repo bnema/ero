@@ -113,11 +113,11 @@ func (r *ReviewRowRenderer) Gutter(_ presenter.ReviewRow, rowIndex int, state Re
 	if marker, ok := state.CommentMarkers[rowIndex]; ok {
 		switch marker {
 		case CommentMarkerStart:
-			return inlineCommentIconStyle.Render(r.config.CommentStartMarker)
+			return InlineCommentIconStyle.Render(r.config.CommentStartMarker)
 		case CommentMarkerEnd:
-			return inlineCommentIconStyle.Render(r.config.CommentEndMarker)
+			return InlineCommentIconStyle.Render(r.config.CommentEndMarker)
 		default:
-			return inlineCommentIconStyle.Render(r.config.CommentBodyMarker)
+			return InlineCommentIconStyle.Render(r.config.CommentBodyMarker)
 		}
 	}
 	if rowIndex == state.CursorRow {
@@ -167,9 +167,9 @@ func (r *ReviewRowRenderer) renderMessage(row presenter.ReviewRow) string {
 
 func (r *ReviewRowRenderer) renderComment(row presenter.ReviewRow) string {
 	if row.Annotation.LineIndex == 0 {
-		return r.annotationIndent(row) + inlineCommentStyle.Render(inlineCommentIconStyle.Render(r.config.CommentIcon)+" "+inlineCommentIDStyle.Render(displayReviewCommentID(row.Annotation.Comment.ID)))
+		return r.annotationIndent(row) + inlineCommentStyle.Render(InlineCommentIconStyle.Render(r.config.CommentIcon)+" "+InlineCommentIDStyle.Render(displayReviewCommentID(row.Annotation.Comment.ID)))
 	}
-	return r.annotationIndent(row) + inlineCommentStyle.Render(inlineCommentBodyStyle.Render(row.Annotation.Body))
+	return r.annotationIndent(row) + inlineCommentStyle.Render(InlineCommentBodyStyle.Render(row.Annotation.Body))
 }
 
 func (r *ReviewRowRenderer) renderRemoteThread(row presenter.ReviewRow) string {
@@ -178,13 +178,13 @@ func (r *ReviewRowRenderer) renderRemoteThread(row presenter.ReviewRow) string {
 		return inlineCommentStyle.Render(unmappedRemoteThreadSummary(thread))
 	}
 	if row.Annotation.LineIndex == 0 {
-		return r.annotationIndent(row) + inlineCommentStyle.Render(inlineCommentIconStyle.Render(r.config.CommentIcon)+" "+inlineCommentIDStyle.Render(providerThreadLabel(thread))+" "+inlineCommentMutedStyle.Render("remote read-only"))
+		return r.annotationIndent(row) + inlineCommentStyle.Render(InlineCommentIconStyle.Render(r.config.CommentIcon)+" "+InlineCommentIDStyle.Render(providerThreadLabel(thread))+" "+inlineCommentMutedStyle.Render("remote read-only"))
 	}
 	author := row.Annotation.Author
 	if author == "" {
 		author = "remote"
 	}
-	return r.annotationIndent(row) + inlineCommentStyle.Render(inlineCommentBodyStyle.Render(author+": "+row.Annotation.Body))
+	return r.annotationIndent(row) + inlineCommentStyle.Render(InlineCommentBodyStyle.Render(author+": "+row.Annotation.Body))
 }
 
 func (r *ReviewRowRenderer) renderEditor(row presenter.ReviewRow) string {
@@ -230,9 +230,9 @@ func contextLocationLabel(position presenter.ReviewContextPosition) string {
 
 var (
 	inlineCommentStyle      = lipgloss.NewStyle().Border(lipgloss.NormalBorder(), false, false, false, true).BorderForeground(lipgloss.Color("62")).PaddingLeft(1)
-	inlineCommentIconStyle  = lipgloss.NewStyle().Foreground(lipgloss.Color("81")).Bold(true)
-	inlineCommentIDStyle    = lipgloss.NewStyle().Foreground(lipgloss.Color("229")).Bold(true)
-	inlineCommentBodyStyle  = lipgloss.NewStyle().Foreground(lipgloss.Color("248"))
+	InlineCommentIconStyle  = lipgloss.NewStyle().Foreground(lipgloss.Color("81")).Bold(true)
+	InlineCommentIDStyle    = lipgloss.NewStyle().Foreground(lipgloss.Color("229")).Bold(true)
+	InlineCommentBodyStyle  = lipgloss.NewStyle().Foreground(lipgloss.Color("248"))
 	inlineCommentMutedStyle = lipgloss.NewStyle().Foreground(lipgloss.Color("8"))
 )
 
