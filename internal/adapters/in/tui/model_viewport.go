@@ -1,32 +1,118 @@
 package tui
 
 import (
-	viewport "charm.land/bubbles/v2/viewport"
-	"charm.land/lipgloss/v2"
+	"sort"
+	"strings"
 
-	"ero/internal/adapters/in/tui/theme"
+	"ero/internal/adapters/in/tui/presenter"
+	"ero/internal/adapters/in/tui/render"
 	"ero/internal/core"
 )
 
+const (
+	reviewPaneGutterWidth       = 2
+	reviewAnnotationIndentWidth = 12
+)
+
 func (m *Model) syncReviewViewport() {
-	width := m.reviewWidth()
-	height := max(m.height-1, 1)
-	annotations := ReviewAnnotations{}
-	if m.reviewDraft != nil {
-		annotations.Comments = m.reviewDraft.Comments()
-	}
-	annotations.RemoteThreads = m.remoteThreads
-	annotations.Editor = m.commentEditor
-	rendered := NewReviewDocument(width).RenderWithAnnotations(m.files, m.selectedFile, m.selectedContext, annotations)
 	currentCursor := m.cursorRow
-	m.reviewViewport.SetWidth(width)
-	m.reviewViewport.SetHeight(height)
-	m.reviewViewport.SetContentLines(rendered.Lines)
-	m.reviewAnchors = rendered.Anchors
-	m.reviewRows = rendered.Rows
+	m.rebuildReviewProjection()
 	m.cursorRow = m.clampCursorRow(currentCursor)
 	m.centerViewportOnCursor()
 	m.updateActiveFileFromCursor()
+	m.syncReviewVisualState()
+}
+
+func (m *Model) rebuildReviewProjection() {
+	width := m.reviewWidth()
+	height := max(m.height-1, 1)
+	annotations := presenter.ReviewAnnotations{RemoteThreads: m.remoteThreads}
+	if m.reviewDraft != nil {
+		annotations.Comments = m.reviewDraft.Comments()
+	}
+	if m.commentEditor != nil {
+		editorWidth := reviewEditorContentWidth(width)
+		m.updateEditorLineCache(editorWidth)
+		editor := presenter.ReviewEditorAnnotation{FilePath: m.commentEditor.FilePath, Range: m.commentEditor.Range, LineCount: len(m.cachedEditorLines)}
+		annotations.Editor = &editor
+	} else {
+		m.clearEditorLineCache()
+	}
+	doc := presenter.BuildReviewDocument(presenter.ReviewDocumentInput{Files: m.files, Annotations: annotations})
+	renderer := render.NewReviewRowRenderer(render.ReviewRowRendererConfig{
+		Width:              max(width-reviewPaneGutterWidth, 0),
+		EnterKeyLabel:      enterKeyLabel(),
+		LineNumberWidths:   doc.LineNumberWidths,
+		LineCache:          m.reviewLineCache,
+		CommentIcon:        nerdIconComment,
+		CursorMarker:       nerdIconArrowRight + " ",
+		SelectionMarker:    "┃ ",
+		CommentStartMarker: "╭ ",
+		CommentBodyMarker:  "│ ",
+		CommentEndMarker:   "╰ ",
+		EditorLineRenderer: m.renderEditorLine,
+	})
+	m.reviewViewport = NewReviewPane(ReviewPaneConfig{Width: width, Height: height, Renderer: renderer})
+	m.reviewViewport.SetRows(doc.Rows)
+	m.reviewAnchors = doc.Anchors
+	m.reviewRows = doc.Rows
+	m.reviewExpanderRows = doc.ExpanderRows
+	m.selectableRows = selectableRowsFromRows(doc.Rows)
+}
+
+func reviewEditorContentWidth(reviewWidth int) int {
+	return max(reviewWidth-reviewPaneGutterWidth-reviewAnnotationIndentWidth, 1)
+}
+
+func (m *Model) updateEditorLineCache(availableWidth int) {
+	if m.commentEditor == nil {
+		m.clearEditorLineCache()
+		return
+	}
+	m.cachedEditorWidth = availableWidth
+	m.cachedEditorLines = strings.Split(m.commentEditor.Editor.ViewWithWidth(availableWidth), "\n")
+}
+
+func (m *Model) clearEditorLineCache() {
+	m.cachedEditorWidth = 0
+	m.cachedEditorLines = nil
+}
+
+func (m Model) renderEditorLine(editor presenter.ReviewEditorAnnotation, lineIndex, availableWidth int) string {
+	if m.commentEditor == nil {
+		return ""
+	}
+	lines := m.cachedEditorLines
+	if len(lines) == 0 || m.cachedEditorWidth != availableWidth {
+		lines = strings.Split(m.commentEditor.Editor.ViewWithWidth(availableWidth), "\n")
+	}
+	if lineIndex < 0 || lineIndex >= len(lines) {
+		return ""
+	}
+	return lines[lineIndex]
+}
+
+func (m *Model) syncReviewVisualState() {
+	m.reviewViewport.SetVisualState(m.reviewVisualState())
+}
+
+func (m Model) reviewVisualState() render.ReviewVisualState {
+	start, end, selected := m.selectedRange()
+	state := render.ReviewVisualState{CursorRow: m.cursorRow, SelectionActive: selected, SelectionStart: start, SelectionEnd: end, CommentMarkers: map[int]render.CommentMarker{}}
+	if fileIndex, sectionIndex, ok := m.selectedContextLocation(); ok {
+		state.SelectedExpander = &presenter.ReviewExpanderAnchor{FileIndex: fileIndex, SectionIndex: sectionIndex}
+	}
+	visibleStart, visibleEnd := m.reviewViewport.VisibleRange()
+	for rowIndex := visibleStart; rowIndex < visibleEnd; rowIndex++ {
+		row := m.reviewRows[rowIndex]
+		if row.Kind != ReviewRowKindLine {
+			continue
+		}
+		if marker, ok := m.commentRangeMarker(rowIndex); ok {
+			state.CommentMarkers[rowIndex] = marker
+		}
+	}
+	return state
 }
 
 func (m *Model) moveCursor(delta int) {
@@ -58,18 +144,11 @@ func (m *Model) updateAfterCursorMove() {
 }
 
 func (m *Model) updateAfterCursorMoveWithOffset(preferredOffset int) {
-	previousFile := m.selectedFile
-	previousContext := m.selectedContext
 	m.selectNearestContextToCursor()
-	if m.selectedFile != previousFile || m.selectedContext != previousContext {
-		m.syncReviewViewport()
-		m.reviewViewport.SetYOffset(preferredOffset)
-		m.keepCursorVisible()
-		return
-	}
 	m.reviewViewport.SetYOffset(preferredOffset)
 	m.keepCursorVisible()
 	m.updateActiveFileFromCursor()
+	m.syncReviewVisualState()
 }
 
 func (m Model) clampCursorRow(row int) int {
@@ -77,28 +156,28 @@ func (m Model) clampCursorRow(row int) int {
 }
 
 func (m Model) selectableRowFrom(row, delta int) int {
+	if len(m.selectableRows) == 0 {
+		return 0
+	}
+	currentIndex := m.nearestSelectableIndex(row)
 	if delta == 0 {
-		return m.clampCursorRow(row)
+		return m.selectableRows[currentIndex]
 	}
-	step := 1
-	if delta < 0 {
-		step = -1
+	nextIndex := min(max(currentIndex+delta, 0), len(m.selectableRows)-1)
+	return m.selectableRows[nextIndex]
+}
+
+func (m Model) nearestSelectableIndex(row int) int {
+	if len(m.selectableRows) == 0 {
+		return 0
 	}
-	first := m.firstSelectableRow()
-	last := m.lastSelectableRow()
-	remaining := delta
-	current := row
-	for remaining != 0 {
-		next := current + step
-		if next < first || next > last {
-			return clampRowWithBounds(next, first, last)
-		}
-		current = next
-		if current >= 0 && current < len(m.reviewRows) && m.reviewRows[current].Selectable {
-			remaining -= step
-		}
+	index := sort.Search(len(m.selectableRows), func(i int) bool {
+		return m.selectableRows[i] >= row
+	})
+	if index >= len(m.selectableRows) {
+		return len(m.selectableRows) - 1
 	}
-	return clampRowWithBounds(current, first, last)
+	return index
 }
 
 func clampRowWithBounds(row, first, last int) int {
@@ -109,21 +188,27 @@ func clampRowWithBounds(row, first, last int) int {
 }
 
 func (m Model) firstSelectableRow() int {
-	for i, row := range m.reviewRows {
-		if row.Selectable {
-			return i
-		}
+	if len(m.selectableRows) == 0 {
+		return 0
 	}
-	return 0
+	return m.selectableRows[0]
 }
 
 func (m Model) lastSelectableRow() int {
-	for i := len(m.reviewRows) - 1; i >= 0; i-- {
-		if m.reviewRows[i].Selectable {
-			return i
+	if len(m.selectableRows) == 0 {
+		return 0
+	}
+	return m.selectableRows[len(m.selectableRows)-1]
+}
+
+func selectableRowsFromRows(rows []ReviewRow) []int {
+	selectableRows := make([]int, 0)
+	for rowIndex, row := range rows {
+		if row.Selectable {
+			selectableRows = append(selectableRows, rowIndex)
 		}
 	}
-	return 0
+	return selectableRows
 }
 
 func (m *Model) centerViewportOnCursor() {
@@ -160,43 +245,12 @@ func (m *Model) updateActiveFileFromCursor() {
 	m.activeFilePath = m.files[fileIndex].Path
 }
 
-func (m Model) reviewGutter(info viewport.GutterContext) string {
-	if info.Soft || info.Index >= len(m.reviewRows) {
-		return "  "
-	}
-	start, end, selected := m.selectedRange()
-	if marker, ok := m.commentRangeGutter(info.Index); ok {
-		return marker
-	}
-	if info.Index == m.cursorRow {
-		return theme.StatusKeyStyle.Render(nerdIconArrowRight + " ")
-	}
-	if selected && info.Index >= start && info.Index <= end {
-		return theme.SelectedExpander.Render("┃ ")
-	}
-	return "  "
-}
-
-func (m Model) reviewLineStyle(rowIndex int) lipgloss.Style {
-	start, end, selected := m.selectedRange()
-	if selected && rowIndex >= start && rowIndex <= end {
-		return theme.SelectedRowStyle
-	}
-	if rowIndex == m.cursorRow {
-		return theme.CursorRowStyle
-	}
-	if m.rowHasCommentRange(rowIndex) || m.rowHasActiveEditorRange(rowIndex) {
-		return theme.CommentRangeRowStyle
-	}
-	return lipgloss.NewStyle()
-}
-
-func (m Model) commentRangeGutter(rowIndex int) (string, bool) {
+func (m Model) commentRangeMarker(rowIndex int) (render.CommentMarker, bool) {
 	if rowIndex < 0 || rowIndex >= len(m.reviewRows) {
 		return "", false
 	}
 	if m.rowHasActiveEditorRange(rowIndex) {
-		return commentBlockMarker(m.reviewRows[rowIndex].Line, m.commentEditor.Range), true
+		return commentBlockMarkerKind(m.reviewRows[rowIndex].Line, m.commentEditor.Range), true
 	}
 	if m.reviewDraft == nil {
 		return "", false
@@ -207,26 +261,10 @@ func (m Model) commentRangeGutter(rowIndex int) (string, bool) {
 	}
 	for _, comment := range m.reviewDraft.Comments() {
 		if comment.FilePath == row.FilePath && lineInReviewRange(row.Line, comment.Range) {
-			return commentBlockMarker(row.Line, comment.Range), true
+			return commentBlockMarkerKind(row.Line, comment.Range), true
 		}
 	}
 	return "", false
-}
-
-func (m Model) rowHasCommentRange(rowIndex int) bool {
-	if rowIndex < 0 || rowIndex >= len(m.reviewRows) || m.reviewDraft == nil {
-		return false
-	}
-	row := m.reviewRows[rowIndex]
-	if row.Kind != ReviewRowKindLine {
-		return false
-	}
-	for _, comment := range m.reviewDraft.Comments() {
-		if comment.FilePath == row.FilePath && lineInReviewRange(row.Line, comment.Range) {
-			return true
-		}
-	}
-	return false
 }
 
 func (m Model) rowHasActiveEditorRange(rowIndex int) bool {
@@ -237,14 +275,24 @@ func (m Model) rowHasActiveEditorRange(rowIndex int) bool {
 	return row.Kind == ReviewRowKindLine && row.FilePath == m.commentEditor.FilePath && lineInReviewRange(row.Line, m.commentEditor.Range)
 }
 
-func commentBlockMarker(line core.ReviewLine, lineRange core.ReviewLineRange) string {
+func commentBlockMarkerKind(line core.ReviewLine, lineRange core.ReviewLineRange) render.CommentMarker {
 	if reviewLineMatchesRef(line, lineRange.Start) {
-		return inlineCommentIconStyle.Render("╭ ")
+		return render.CommentMarkerStart
 	}
 	if reviewLineMatchesRef(line, lineRange.End) {
-		return inlineCommentIconStyle.Render("╰ ")
+		return render.CommentMarkerEnd
 	}
-	return inlineCommentIconStyle.Render("│ ")
+	return render.CommentMarkerBody
+}
+
+func reviewLineMatchesRef(line core.ReviewLine, ref core.ReviewLineRef) bool {
+	if ref.NewLineNumber > 0 && line.NewLineNumber == ref.NewLineNumber {
+		return true
+	}
+	if ref.OldLineNumber > 0 && line.OldLineNumber == ref.OldLineNumber {
+		return true
+	}
+	return false
 }
 
 func lineInReviewRange(line core.ReviewLine, lineRange core.ReviewLineRange) bool {

@@ -4,11 +4,12 @@ import (
 	"context"
 	"fmt"
 
-	viewport "charm.land/bubbles/v2/viewport"
 	tea "charm.land/bubbletea/v2"
 	"charm.land/lipgloss/v2"
 
 	"ero/internal/adapters/in/tui/keymap"
+	"ero/internal/adapters/in/tui/presenter"
+	"ero/internal/adapters/in/tui/render"
 	"ero/internal/adapters/in/tui/theme"
 	"ero/internal/core"
 	"ero/internal/ports"
@@ -68,12 +69,14 @@ type Model struct {
 	selectedContext      int
 	width                int
 	height               int
-	reviewViewport       viewport.Model
+	reviewViewport       ReviewPane
 	reviewAnchors        ReviewAnchors
 	activeFilePath       string
 	cursorRow            int
 	selectionAnchorRow   *int
 	reviewRows           []ReviewRow
+	reviewExpanderRows   map[presenter.ReviewExpanderAnchor]int
+	selectableRows       []int
 	clipboardWriter      ports.ClipboardWriter
 	lastCopiedText       string
 	copyFeedback         string
@@ -91,6 +94,9 @@ type Model struct {
 	providerInfoByClient map[ports.ReviewProviderClient]core.ReviewProviderInfo
 	publish              publishState
 	ctx                  context.Context
+	reviewLineCache      *render.ReviewLineCache
+	cachedEditorWidth    int
+	cachedEditorLines    []string
 }
 
 func NewModel(files []core.ReviewFile) Model {
@@ -128,7 +134,7 @@ func NewModelWithReviewProvidersContext(ctx context.Context, files []core.Review
 		selectedContext:      -1,
 		width:                defaultWidth,
 		height:               defaultHeight,
-		reviewViewport:       viewport.New(),
+		reviewViewport:       NewReviewPane(ReviewPaneConfig{Width: defaultWidth, Height: max(defaultHeight-1, 1)}),
 		clipboardWriter:      clipboardWriter,
 		diffMode:             request.DiffMode,
 		nerdFont:             true,
@@ -140,11 +146,11 @@ func NewModelWithReviewProvidersContext(ctx context.Context, files []core.Review
 		providerInfoByClient: map[ports.ReviewProviderClient]core.ReviewProviderInfo{},
 		remoteThreads:        nil,
 		ctx:                  ctx,
+		reviewLineCache:      render.NewReviewLineCache(),
 	}
 	if terminal != nil {
 		m.nerdFont = terminal.SupportsNerdFont()
 	}
-	m.reviewViewport.SoftWrap = false
 	m.resetContextSelection()
 	m.syncReviewViewport()
 	return m
@@ -246,13 +252,13 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if m.publish.active {
 			return m.updatePublishReview(msg)
 		}
-		return m.updateReviewAction(keymap.ReviewAction(msg.String()), msg)
+		return m.updateReviewAction(keymap.ReviewAction(msg.String()))
 	default:
 		return m, nil
 	}
 }
 
-func (m Model) updateReviewAction(action keymap.Action, msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
+func (m Model) updateReviewAction(action keymap.Action) (tea.Model, tea.Cmd) {
 	switch action {
 	case keymap.ActionQuit:
 		return m, tea.Batch(m.closeReviewProvidersCmd(), tea.Quit)
@@ -301,20 +307,14 @@ func (m Model) updateReviewAction(action keymap.Action, msg tea.KeyPressMsg) (te
 	case keymap.ActionOpenHelp:
 		m.helpActive = true
 	case keymap.ActionNone:
-		var cmd tea.Cmd
-		m.reviewViewport, cmd = m.reviewViewport.Update(msg)
-		m.cursorRow = m.clampCursorRow(m.reviewViewport.YOffset())
-		m.updateActiveFileFromCursor()
-		return m, cmd
+		return m, nil
 	}
+	m.syncReviewVisualState()
 	return m, nil
 }
 
 func (m Model) View() tea.View {
-	reviewViewport := m.reviewViewport
-	reviewViewport.LeftGutterFunc = m.reviewGutter
-	reviewViewport.StyleLineFunc = m.reviewLineStyle
-	review := reviewViewport.View()
+	review := m.reviewViewport.View(m.reviewVisualState())
 	if m.loading {
 		review = theme.MutedStyle.Render("Loading diff…") + "\n" + review
 	} else if m.loadError != "" {

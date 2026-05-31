@@ -4,6 +4,7 @@ import (
 	"testing"
 
 	tea "charm.land/bubbletea/v2"
+	"ero/internal/adapters/in/tui/presenter"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
@@ -53,7 +54,7 @@ func TestReviewDocumentRendersContextualContextBars(t *testing.T) {
 		},
 	}}
 
-	content := stripANSI(NewReviewDocument(120).Render(files, -1))
+	content := stripANSI(renderReviewForTest(files, 120, -1, -1, presenter.ReviewAnnotations{}).Content)
 
 	assert.Contains(t, content, "⋯ 2 hidden lines from beginning of file · ["+enterKeyLabel()+"] show more · [a] show all")
 	assert.Contains(t, content, "⋯ 2 hidden lines between changes · ["+enterKeyLabel()+"] show more · [a] show all")
@@ -72,7 +73,7 @@ func TestReviewDocumentRendersSingularOnlyContextBar(t *testing.T) {
 		}},
 	}}
 
-	content := stripANSI(NewReviewDocument(120).Render(files, -1))
+	content := stripANSI(renderReviewForTest(files, 120, -1, -1, presenter.ReviewAnnotations{}).Content)
 
 	assert.Contains(t, content, "⋯ 1 hidden line in file · ["+enterKeyLabel()+"] show more · [a] show all")
 }
@@ -331,7 +332,7 @@ func TestReviewDocumentOmitsContextBarWhenNoHiddenLinesRemain(t *testing.T) {
 		}},
 	}}
 
-	content := stripANSI(NewReviewDocument(120).Render(files, -1))
+	content := stripANSI(renderReviewForTest(files, 120, -1, -1, presenter.ReviewAnnotations{}).Content)
 
 	assert.NotContains(t, content, "hidden line")
 	assert.Contains(t, content, "visible")

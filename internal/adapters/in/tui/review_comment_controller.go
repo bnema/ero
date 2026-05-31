@@ -1,7 +1,6 @@
 package tui
 
 import (
-	"context"
 	"strings"
 
 	tea "charm.land/bubbletea/v2"
@@ -83,7 +82,9 @@ func (m Model) copyReviewJSONToClipboard() (Model, tea.Cmd) {
 	m.setCopyFeedback("Copying review JSON…")
 	writer := m.clipboardWriter
 	return m, func() tea.Msg {
-		if err := writer.WriteClipboard(context.Background(), text); err != nil {
+		ctx, cancel := m.clipboardContext()
+		defer cancel()
+		if err := writer.WriteClipboard(ctx, text); err != nil {
 			return clipboardCopyFailedMsg{err: err}
 		}
 		return clipboardCopiedMsg{text: text, reviewJSON: true, commentCount: commentCount}

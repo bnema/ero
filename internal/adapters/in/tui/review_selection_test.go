@@ -5,6 +5,7 @@ import (
 	"testing"
 
 	tea "charm.land/bubbletea/v2"
+	"ero/internal/adapters/in/tui/presenter"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
@@ -29,7 +30,7 @@ func TestReviewDocumentHighlightsSelectedContextOnlyInSelectedFile(t *testing.T)
 		},
 	}
 
-	rendered := NewReviewDocument(80).RenderWithAnchors(files, 1, 0).Content
+	rendered := renderReviewForTest(files, 80, 1, 0, presenter.ReviewAnnotations{}).Content
 	lines := strings.Split(rendered, "\n")
 
 	assert.NotContains(t, lines[2], "\x1b[1;")
