@@ -119,6 +119,17 @@ func TestSelectBridgeSessionRejectsAmbiguousStaleBranchesForSameWorktree(t *test
 	}
 }
 
+func TestSelectBridgeSessionRejectsAmbiguousPathMatchesWithoutMetadata(t *testing.T) {
+	root := mustAbs(t, ".")
+	_, ok := selectBridgeSession([]bridgeSession{
+		{SessionID: "older", WorktreeRoot: root, UpdatedAt: "2026-01-01T00:00:01Z"},
+		{SessionID: "newer", WorktreeRoot: root, UpdatedAt: "2026-01-01T00:00:02Z"},
+	}, plugin.RepositoryMetadata{WorktreeRoot: root}, "")
+	if ok {
+		t.Fatal("expected ambiguous path-only sessions to be rejected")
+	}
+}
+
 func TestSelectBridgeSessionMatchesBranchWhenKnown(t *testing.T) {
 	root := mustAbs(t, ".")
 	session, ok := selectBridgeSession([]bridgeSession{

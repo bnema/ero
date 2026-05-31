@@ -233,6 +233,9 @@ func selectBridgeSession(sessions []bridgeSession, repo plugin.RepositoryMetadat
 			return bridgeSession{}, false
 		}
 	}
+	if repo.HeadSHA == "" && repo.CurrentBranch == "" && len(matches) > 1 {
+		return bridgeSession{}, false
+	}
 	return bestScoredSession(matches)
 }
 

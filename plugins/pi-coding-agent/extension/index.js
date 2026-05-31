@@ -147,8 +147,9 @@ export default function eroPiCodingAgentBridge(pi) {
     await ensureListening(sessionId);
     const git = await readGitMetadata(pi, ctx.cwd);
     if (stopped || activeSessionId !== sessionId) return;
+    const previous = readState(statePath).sessions.find((session) => session.session_id === sessionId);
     currentSessionId = sessionId;
-    upsertSession(statePath, bridgeSessionRecord(ctx, git, socketPath, token));
+    upsertSession(statePath, bridgeSessionRecord(ctx, mergeGitMetadata(previous, git), socketPath, token));
     ctx.ui.setStatus("ero-pi-coding-agent", `Ero bridge ${sessionId.slice(0, 8)}`);
   }
 
@@ -296,6 +297,14 @@ function readState(path) {
 function writeState(path, state) {
   writeFileSync(path, JSON.stringify(state, null, 2), { mode: 0o600 });
   chmodSync(path, 0o600);
+}
+
+function mergeGitMetadata(previous, git) {
+  return {
+    worktreeRoot: git.worktreeRoot || previous?.worktree_root || "",
+    currentBranch: git.currentBranch || previous?.current_branch || "",
+    headSHA: git.headSHA || previous?.head_sha || "",
+  };
 }
 
 export function bridgeSessionRecord(ctx, git, socketPath, token, now = () => new Date()) {

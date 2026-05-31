@@ -41,6 +41,39 @@ test("refreshes bridge registry after git metadata changes while the session sta
   }
 });
 
+test("refresh preserves existing git metadata when git commands return empty values", async () => {
+  const runtimeDir = await mkdtemp(join(tmpdir(), "ero-pi-bridge-test-"));
+  const previousRuntimeDir = process.env.XDG_RUNTIME_DIR;
+  process.env.XDG_RUNTIME_DIR = runtimeDir;
+  const handlers = new Map();
+  const git = { root: "/repo", branch: "main", head: "aaa" };
+  const pi = fakePi({ handlers, git });
+  const ctx = fakeContext("session-1", "/repo");
+
+  try {
+    eroPiCodingAgentBridge(pi);
+    await emit(handlers, "session_start", { reason: "startup" }, ctx);
+
+    git.root = "";
+    git.branch = "";
+    git.head = "";
+    await emit(handlers, "tool_execution_end", { toolName: "bash" }, ctx);
+
+    const session = await readOnlySession(runtimeDir);
+    assert.equal(session.worktree_root, "/repo");
+    assert.equal(session.current_branch, "main");
+    assert.equal(session.head_sha, "aaa");
+  } finally {
+    await emitIfRegistered(handlers, "session_shutdown", { reason: "quit" }, ctx);
+    if (previousRuntimeDir === undefined) {
+      delete process.env.XDG_RUNTIME_DIR;
+    } else {
+      process.env.XDG_RUNTIME_DIR = previousRuntimeDir;
+    }
+    await rm(runtimeDir, { recursive: true, force: true });
+  }
+});
+
 test("upsertSession refreshes branch and head metadata for an existing Pi session", async () => {
   const dir = await mkdtemp(join(tmpdir(), "ero-pi-bridge-state-"));
   try {
