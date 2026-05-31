@@ -188,13 +188,14 @@ func (r *ReviewRowRenderer) renderRemoteThread(row presenter.ReviewRow) string {
 }
 
 func (r *ReviewRowRenderer) renderEditor(row presenter.ReviewRow) string {
+	indent := r.annotationIndent(row)
 	if row.Annotation.LineIndex == 0 {
-		return r.annotationIndent(row) + inlineCommentMutedStyle.Render("commenting "+formatReviewLineRange(row.Annotation.Editor.Range))
+		return indent + inlineCommentMutedStyle.Render("commenting "+formatReviewLineRange(row.Annotation.Editor.Range))
 	}
 	if r.config.EditorLineRenderer == nil {
 		return ""
 	}
-	return r.annotationIndent(row) + r.config.EditorLineRenderer(row.Annotation.Editor, row.Annotation.LineIndex-1, max(r.config.Width-len([]rune(r.annotationIndent(row))), 1))
+	return indent + r.config.EditorLineRenderer(row.Annotation.Editor, row.Annotation.LineIndex-1, max(r.config.Width-len([]rune(indent)), 1))
 }
 
 func (r *ReviewRowRenderer) annotationIndent(row presenter.ReviewRow) string {

@@ -37,7 +37,9 @@ func TestReviewDocumentCharacterizesCurrentVisualChromeAndAnnotations(t *testing
 		},
 	}}
 	inlineEditor := InlineCommentEditor{FilePath: "demo.go", Range: core.ReviewLineRange{Start: core.ReviewLineRef{OldLineNumber: 11, Kind: core.LineKindDeleted}, End: core.ReviewLineRef{OldLineNumber: 11, Kind: core.LineKindDeleted}}, Editor: NewCommentEditor(80)}
-	editorAnnotation := inlineEditor.PresenterAnnotation(86)
+	// Width 86 is the 100-column review width minus the two-column pane gutter and twelve-column annotation indent.
+	const presenterAnnotationWidth = 86
+	editorAnnotation := inlineEditor.PresenterAnnotation(presenterAnnotationWidth)
 	rendered := renderReviewForTest(files, 100, 0, 0, presenter.ReviewAnnotations{
 		Comments: draft.Comments(),
 		RemoteThreads: []core.RemoteReviewThread{{

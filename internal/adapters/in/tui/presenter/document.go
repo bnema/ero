@@ -2,6 +2,7 @@ package presenter
 
 import (
 	"fmt"
+	"sort"
 	"strings"
 
 	"ero/internal/core"
@@ -29,6 +30,7 @@ func BuildReviewDocument(input ReviewDocumentInput) ReviewDocument {
 	builder := reviewDocumentBuilder{
 		input:            input,
 		lineNumberWidths: make(map[int]int, len(input.Files)),
+		annotationIndex:  newReviewAnnotationIndex(input.Annotations),
 	}
 	return builder.build()
 }
@@ -37,6 +39,7 @@ type reviewDocumentBuilder struct {
 	input            ReviewDocumentInput
 	rows             []ReviewRow
 	lineNumberWidths map[int]int
+	annotationIndex  reviewAnnotationIndex
 }
 
 func (b *reviewDocumentBuilder) build() ReviewDocument {
@@ -134,15 +137,11 @@ func (b *reviewDocumentBuilder) appendLine(fileIndex, sectionIndex, lineIndex in
 }
 
 func (b *reviewDocumentBuilder) appendAnnotationsAfter(row ReviewRow) {
-	for _, comment := range b.input.Annotations.Comments {
-		if commentBelongsAfterRow(comment, row) {
-			b.appendCommentAnnotationRows(row, comment)
-		}
+	for _, comment := range b.annotationIndex.commentsAfter(row) {
+		b.appendCommentAnnotationRows(row, comment)
 	}
-	for _, thread := range b.input.Annotations.RemoteThreads {
-		if remoteThreadBelongsAfterRow(thread, row) {
-			b.appendRemoteThreadAnnotationRows(row, thread)
-		}
+	for _, thread := range b.annotationIndex.remoteThreadsAfter(row) {
+		b.appendRemoteThreadAnnotationRows(row, thread)
 	}
 	if b.input.Annotations.Editor != nil && editorBelongsAfterRow(*b.input.Annotations.Editor, row) {
 		b.appendEditorAnnotationRows(row, *b.input.Annotations.Editor)
@@ -151,8 +150,10 @@ func (b *reviewDocumentBuilder) appendAnnotationsAfter(row ReviewRow) {
 
 func (b *reviewDocumentBuilder) appendCommentAnnotationRows(row ReviewRow, comment core.ReviewComment) {
 	b.rows = append(b.rows, ReviewRow{Kind: ReviewRowKindComment, FileIndex: row.FileIndex, SectionIndex: row.SectionIndex, LineIndex: row.LineIndex, FilePath: row.FilePath, Annotation: ReviewAnnotation{Comment: comment, LineIndex: 0}})
-	for lineIndex, body := range strings.Split(comment.Body, "\n") {
-		b.rows = append(b.rows, ReviewRow{Kind: ReviewRowKindComment, FileIndex: row.FileIndex, SectionIndex: row.SectionIndex, LineIndex: row.LineIndex, FilePath: row.FilePath, Annotation: ReviewAnnotation{Comment: comment, LineIndex: lineIndex + 1, Body: body}})
+	lineIndex := 1
+	for body := range strings.SplitSeq(comment.Body, "\n") {
+		b.rows = append(b.rows, ReviewRow{Kind: ReviewRowKindComment, FileIndex: row.FileIndex, SectionIndex: row.SectionIndex, LineIndex: row.LineIndex, FilePath: row.FilePath, Annotation: ReviewAnnotation{Comment: comment, LineIndex: lineIndex, Body: body}})
+		lineIndex++
 	}
 }
 
@@ -164,7 +165,7 @@ func (b *reviewDocumentBuilder) appendRemoteThreadAnnotationRows(row ReviewRow, 
 		if author == "" {
 			author = "remote"
 		}
-		for _, body := range strings.Split(comment.Body, "\n") {
+		for body := range strings.SplitSeq(comment.Body, "\n") {
 			b.rows = append(b.rows, ReviewRow{Kind: ReviewRowKindRemoteThread, FileIndex: row.FileIndex, SectionIndex: row.SectionIndex, LineIndex: row.LineIndex, FilePath: row.FilePath, Annotation: ReviewAnnotation{RemoteThread: thread, LineIndex: lineIndex, Author: author, Body: body}})
 			lineIndex++
 		}
@@ -225,6 +226,102 @@ func fileStats(file core.ReviewFile) ReviewFileStats {
 		}
 	}
 	return stats
+}
+
+type reviewAnnotationLineKey struct {
+	filePath string
+	oldLine  int
+	newLine  int
+}
+
+type reviewAnnotationIndex struct {
+	comments         []core.ReviewComment
+	commentRows      map[reviewAnnotationLineKey][]int
+	remoteThreads    []core.RemoteReviewThread
+	remoteThreadRows map[reviewAnnotationLineKey][]int
+}
+
+func newReviewAnnotationIndex(annotations ReviewAnnotations) reviewAnnotationIndex {
+	index := reviewAnnotationIndex{
+		comments:         append([]core.ReviewComment(nil), annotations.Comments...),
+		commentRows:      map[reviewAnnotationLineKey][]int{},
+		remoteThreadRows: map[reviewAnnotationLineKey][]int{},
+	}
+	for commentIndex, comment := range index.comments {
+		for _, key := range annotationLineKeys(comment.FilePath, comment.Range.End) {
+			index.commentRows[key] = append(index.commentRows[key], commentIndex)
+		}
+	}
+	for _, thread := range annotations.RemoteThreads {
+		if thread.Unmapped || thread.FilePath == "" {
+			continue
+		}
+		threadIndex := len(index.remoteThreads)
+		index.remoteThreads = append(index.remoteThreads, thread)
+		for _, key := range annotationLineKeys(thread.FilePath, thread.Range.End) {
+			index.remoteThreadRows[key] = append(index.remoteThreadRows[key], threadIndex)
+		}
+	}
+	return index
+}
+
+func annotationLineKeys(filePath string, ref core.ReviewLineRef) []reviewAnnotationLineKey {
+	keys := make([]reviewAnnotationLineKey, 0, 2)
+	if ref.NewLineNumber > 0 {
+		keys = append(keys, reviewAnnotationLineKey{filePath: filePath, newLine: ref.NewLineNumber})
+	}
+	if ref.OldLineNumber > 0 {
+		keys = append(keys, reviewAnnotationLineKey{filePath: filePath, oldLine: ref.OldLineNumber})
+	}
+	return keys
+}
+
+func rowAnnotationLineKeys(row ReviewRow) []reviewAnnotationLineKey {
+	keys := make([]reviewAnnotationLineKey, 0, 2)
+	if row.Line.NewLineNumber > 0 {
+		keys = append(keys, reviewAnnotationLineKey{filePath: row.FilePath, newLine: row.Line.NewLineNumber})
+	}
+	if row.Line.OldLineNumber > 0 {
+		keys = append(keys, reviewAnnotationLineKey{filePath: row.FilePath, oldLine: row.Line.OldLineNumber})
+	}
+	if len(keys) == 0 {
+		keys = append(keys, reviewAnnotationLineKey{filePath: row.FilePath})
+	}
+	return keys
+}
+
+func (i reviewAnnotationIndex) commentsAfter(row ReviewRow) []core.ReviewComment {
+	indexes := annotationIndexesAfter(row, i.commentRows)
+	comments := make([]core.ReviewComment, 0, len(indexes))
+	for _, index := range indexes {
+		comments = append(comments, i.comments[index])
+	}
+	return comments
+}
+
+func (i reviewAnnotationIndex) remoteThreadsAfter(row ReviewRow) []core.RemoteReviewThread {
+	indexes := annotationIndexesAfter(row, i.remoteThreadRows)
+	threads := make([]core.RemoteReviewThread, 0, len(indexes))
+	for _, index := range indexes {
+		threads = append(threads, i.remoteThreads[index])
+	}
+	return threads
+}
+
+func annotationIndexesAfter(row ReviewRow, rows map[reviewAnnotationLineKey][]int) []int {
+	seen := map[int]struct{}{}
+	indexes := make([]int, 0)
+	for _, key := range rowAnnotationLineKeys(row) {
+		for _, index := range rows[key] {
+			if _, ok := seen[index]; ok {
+				continue
+			}
+			seen[index] = struct{}{}
+			indexes = append(indexes, index)
+		}
+	}
+	sort.Ints(indexes)
+	return indexes
 }
 
 func lineNumberWidth(file core.ReviewFile) int {

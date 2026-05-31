@@ -95,6 +95,8 @@ type Model struct {
 	publish              publishState
 	ctx                  context.Context
 	reviewLineCache      *render.ReviewLineCache
+	cachedEditorWidth    int
+	cachedEditorLines    []string
 }
 
 func NewModel(files []core.ReviewFile) Model {
@@ -250,13 +252,13 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if m.publish.active {
 			return m.updatePublishReview(msg)
 		}
-		return m.updateReviewAction(keymap.ReviewAction(msg.String()), msg)
+		return m.updateReviewAction(keymap.ReviewAction(msg.String()))
 	default:
 		return m, nil
 	}
 }
 
-func (m Model) updateReviewAction(action keymap.Action, msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
+func (m Model) updateReviewAction(action keymap.Action) (tea.Model, tea.Cmd) {
 	switch action {
 	case keymap.ActionQuit:
 		return m, tea.Batch(m.closeReviewProvidersCmd(), tea.Quit)

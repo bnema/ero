@@ -11,16 +11,6 @@ import (
 	"ero/internal/adapters/in/tui/render"
 )
 
-type reviewPaneLineStyle interface {
-	Render(...string) string
-}
-
-type reviewPaneStyleFunc func(string) string
-
-func (f reviewPaneStyleFunc) Render(values ...string) string {
-	return f(strings.Join(values, ""))
-}
-
 type reviewPaneRenderer interface {
 	Render(presenter.ReviewRow, int, render.ReviewVisualState) string
 	Gutter(presenter.ReviewRow, int, render.ReviewVisualState) string
@@ -94,6 +84,15 @@ func (p *ReviewPane) YOffset() int {
 	return p.yOffset
 }
 
+func (p *ReviewPane) VisibleRange() (int, int) {
+	if p.height <= 0 || len(p.rows) == 0 {
+		return 0, 0
+	}
+	start := min(max(p.yOffset, 0), len(p.rows))
+	end := min(start+p.height, len(p.rows))
+	return start, end
+}
+
 func (p *ReviewPane) GotoTop() {
 	p.SetYOffset(0)
 }
@@ -141,8 +140,8 @@ func (p ReviewPane) View(states ...render.ReviewVisualState) string {
 		return ""
 	}
 	lines := make([]string, 0, height)
-	end := min(p.yOffset+height, len(p.rows))
-	for rowIndex := p.yOffset; rowIndex < end; rowIndex++ {
+	start, end := p.VisibleRange()
+	for rowIndex := start; rowIndex < end; rowIndex++ {
 		row := p.rows[rowIndex]
 		line := p.renderRow(row, rowIndex, state)
 		lines = append(lines, p.truncate(line))
@@ -201,5 +200,3 @@ func (p ReviewPane) maxYOffset() int {
 func (p *ReviewPane) clampYOffset() {
 	p.yOffset = min(max(p.yOffset, 0), p.maxYOffset())
 }
-
-var _ reviewPaneLineStyle = lipgloss.Style{}

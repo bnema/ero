@@ -1,11 +1,17 @@
 package tui
 
 import (
+	"sort"
 	"strings"
 
 	"ero/internal/adapters/in/tui/presenter"
 	"ero/internal/adapters/in/tui/render"
 	"ero/internal/core"
+)
+
+const (
+	reviewPaneGutterWidth       = 2
+	reviewAnnotationIndentWidth = 12
 )
 
 func (m *Model) syncReviewViewport() {
@@ -14,6 +20,7 @@ func (m *Model) syncReviewViewport() {
 	m.cursorRow = m.clampCursorRow(currentCursor)
 	m.centerViewportOnCursor()
 	m.updateActiveFileFromCursor()
+	m.syncReviewVisualState()
 }
 
 func (m *Model) rebuildReviewProjection() {
@@ -24,12 +31,16 @@ func (m *Model) rebuildReviewProjection() {
 		annotations.Comments = m.reviewDraft.Comments()
 	}
 	if m.commentEditor != nil {
-		editor := m.commentEditor.PresenterAnnotation(max(width-14, 1))
+		editorWidth := reviewEditorContentWidth(width)
+		m.updateEditorLineCache(editorWidth)
+		editor := presenter.ReviewEditorAnnotation{FilePath: m.commentEditor.FilePath, Range: m.commentEditor.Range, LineCount: len(m.cachedEditorLines)}
 		annotations.Editor = &editor
+	} else {
+		m.clearEditorLineCache()
 	}
 	doc := presenter.BuildReviewDocument(presenter.ReviewDocumentInput{Files: m.files, Annotations: annotations})
 	renderer := render.NewReviewRowRenderer(render.ReviewRowRendererConfig{
-		Width:              width - 2,
+		Width:              max(width-reviewPaneGutterWidth, 0),
 		EnterKeyLabel:      enterKeyLabel(),
 		LineNumberWidths:   doc.LineNumberWidths,
 		LineCache:          m.reviewLineCache,
@@ -47,14 +58,34 @@ func (m *Model) rebuildReviewProjection() {
 	m.reviewRows = doc.Rows
 	m.reviewExpanderRows = doc.ExpanderRows
 	m.selectableRows = selectableRowsFromRows(doc.Rows)
-	m.syncReviewVisualState()
+}
+
+func reviewEditorContentWidth(reviewWidth int) int {
+	return max(reviewWidth-reviewPaneGutterWidth-reviewAnnotationIndentWidth, 1)
+}
+
+func (m *Model) updateEditorLineCache(availableWidth int) {
+	if m.commentEditor == nil {
+		m.clearEditorLineCache()
+		return
+	}
+	m.cachedEditorWidth = availableWidth
+	m.cachedEditorLines = strings.Split(m.commentEditor.Editor.ViewWithWidth(availableWidth), "\n")
+}
+
+func (m *Model) clearEditorLineCache() {
+	m.cachedEditorWidth = 0
+	m.cachedEditorLines = nil
 }
 
 func (m Model) renderEditorLine(editor presenter.ReviewEditorAnnotation, lineIndex, availableWidth int) string {
 	if m.commentEditor == nil {
 		return ""
 	}
-	lines := strings.Split(m.commentEditor.Editor.ViewWithWidth(availableWidth), "\n")
+	lines := m.cachedEditorLines
+	if len(lines) == 0 || m.cachedEditorWidth != availableWidth {
+		lines = strings.Split(m.commentEditor.Editor.ViewWithWidth(availableWidth), "\n")
+	}
 	if lineIndex < 0 || lineIndex >= len(lines) {
 		return ""
 	}
@@ -71,7 +102,9 @@ func (m Model) reviewVisualState() render.ReviewVisualState {
 	if fileIndex, sectionIndex, ok := m.selectedContextLocation(); ok {
 		state.SelectedExpander = &presenter.ReviewExpanderAnchor{FileIndex: fileIndex, SectionIndex: sectionIndex}
 	}
-	for rowIndex, row := range m.reviewRows {
+	visibleStart, visibleEnd := m.reviewViewport.VisibleRange()
+	for rowIndex := visibleStart; rowIndex < visibleEnd; rowIndex++ {
+		row := m.reviewRows[rowIndex]
 		if row.Kind != ReviewRowKindLine {
 			continue
 		}
@@ -138,12 +171,13 @@ func (m Model) nearestSelectableIndex(row int) int {
 	if len(m.selectableRows) == 0 {
 		return 0
 	}
-	for i, selectableRow := range m.selectableRows {
-		if selectableRow >= row {
-			return i
-		}
+	index := sort.Search(len(m.selectableRows), func(i int) bool {
+		return m.selectableRows[i] >= row
+	})
+	if index >= len(m.selectableRows) {
+		return len(m.selectableRows) - 1
 	}
-	return len(m.selectableRows) - 1
+	return index
 }
 
 func clampRowWithBounds(row, first, last int) int {

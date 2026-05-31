@@ -11,26 +11,24 @@ import (
 )
 
 func BenchmarkLargeReviewDownNavigation(b *testing.B) {
-	model := NewModel(largeReviewFilesForBenchmark(60, 136))
+	model := NewModel(largeReviewFilesForBenchmark(60, 17))
 	updated, _ := model.Update(tea.WindowSizeMsg{Width: 120, Height: 30})
 	model = updated.(Model)
 
 	b.ReportAllocs()
-	b.ResetTimer()
-	for i := 0; i < b.N; i++ {
+	for b.Loop() {
 		updated, _ = model.Update(tea.KeyPressMsg{Code: tea.KeyDown})
 		model = updated.(Model)
 	}
 }
 
 func BenchmarkLargeReviewView(b *testing.B) {
-	model := NewModel(largeReviewFilesForBenchmark(60, 136))
+	model := NewModel(largeReviewFilesForBenchmark(60, 17))
 	updated, _ := model.Update(tea.WindowSizeMsg{Width: 120, Height: 30})
 	model = updated.(Model)
 
 	b.ReportAllocs()
-	b.ResetTimer()
-	for i := 0; i < b.N; i++ {
+	for b.Loop() {
 		_ = model.View()
 	}
 }
@@ -55,12 +53,12 @@ func TestReviewPaneViewRendersOnlyVisibleRows(t *testing.T) {
 	}
 }
 
-func largeReviewFilesForBenchmark(fileCount, renderedLinesPerFile int) []core.ReviewFile {
+func largeReviewFilesForBenchmark(fileCount, sectionBlockCount int) []core.ReviewFile {
 	files := make([]core.ReviewFile, fileCount)
 	for fileIndex := range files {
-		sections := make([]core.ReviewSection, 0, renderedLinesPerFile/8)
+		sections := make([]core.ReviewSection, 0, sectionBlockCount*2)
 		lineNumber := 1
-		for sectionIndex := 0; sectionIndex < renderedLinesPerFile/8; sectionIndex++ {
+		for sectionIndex := range sectionBlockCount {
 			contextLines := make([]core.ReviewLine, 20)
 			for i := range contextLines {
 				contextLines[i] = core.ReviewLine{OldLineNumber: lineNumber, NewLineNumber: lineNumber, Content: "package demo // unchanged context line with tokens", Kind: core.LineKindUnchanged}
@@ -69,7 +67,7 @@ func largeReviewFilesForBenchmark(fileCount, renderedLinesPerFile int) []core.Re
 			sections = append(sections, core.ReviewSection{ID: fmt.Sprintf("ctx-%d", sectionIndex), Kind: core.SectionKindContext, Lines: contextLines})
 
 			changedLines := make([]core.ReviewLine, 0, 7)
-			for i := 0; i < 7; i++ {
+			for range 7 {
 				changedLines = append(changedLines, core.ReviewLine{
 					OldLineNumber: lineNumber,
 					NewLineNumber: lineNumber,

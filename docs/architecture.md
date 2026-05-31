@@ -210,9 +210,9 @@ The typed presenter document is rebuilt only when the review structure changes:
 - diff files are loaded or reloaded
 - context lines expand/collapse
 - local comments, remote threads, or the active editor change annotation rows
-- terminal width changes enough to affect editor wrapping or row metadata
+- terminal width changes, measured in terminal character columns, when the change affects editor wrapping or row metadata
 
-Simple cursor movement, selection changes, and nearest-expander highlight changes update visual state only. The syntax-highlighted line cache is cleared or replaced when diff content, syntax tokens, or width-sensitive line-number metadata changes.
+For the current implementation, every terminal-width change rebuilds the typed presenter document because inline editor wrapping is width-dependent row metadata. Diff lines do not soft-wrap in the review pane, and the line-number column width is derived from review line numbers rather than terminal width, so those do not create separate width breakpoints. If future rendering adds diff-line wrapping, the exact rebuild signals should be: a change in computed editor wrapping, a change in line-number column width, or another row metadata change. Simple cursor movement, selection changes, and nearest-expander highlight changes update visual state only. The syntax-highlighted line cache is cleared or replaced when diff content, syntax tokens, or width-sensitive line-number metadata changes.
 
 ## Highlighting design retrieved from `cue`
 
