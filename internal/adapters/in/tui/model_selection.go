@@ -1,7 +1,6 @@
 package tui
 
 import (
-	"context"
 	"fmt"
 	"sort"
 	"strings"
@@ -53,7 +52,9 @@ func (m Model) copyToClipboard(withMetadata bool) (Model, tea.Cmd) {
 	lineCount := len(rows)
 	writer := m.clipboardWriter
 	return m, func() tea.Msg {
-		if err := writer.WriteClipboard(context.Background(), text); err != nil {
+		ctx, cancel := m.clipboardContext()
+		defer cancel()
+		if err := writer.WriteClipboard(ctx, text); err != nil {
 			return clipboardCopyFailedMsg{err: err}
 		}
 		return clipboardCopiedMsg{text: text, lineCount: lineCount, withMetadata: withMetadata}

@@ -1,6 +1,7 @@
 package tui
 
 import (
+	"context"
 	"strings"
 	"testing"
 
@@ -12,6 +13,15 @@ import (
 	"ero/internal/core"
 	"ero/internal/ports/mocks"
 )
+
+type deadlineRecordingClipboardWriter struct {
+	hadDeadline bool
+}
+
+func (w *deadlineRecordingClipboardWriter) WriteClipboard(ctx context.Context, _ string) error {
+	_, w.hadDeadline = ctx.Deadline()
+	return nil
+}
 
 func TestModelOpenCommentEditorUsesSelectedLineRange(t *testing.T) {
 	model := NewModel([]core.ReviewFile{reviewFileWithLines("demo.go", 3)})
@@ -65,6 +75,27 @@ func TestModelInlineCommentSubmitCopiesReviewJSON(t *testing.T) {
 	assert.Contains(t, model.copyFeedback, "Review JSON copied (1 comment)")
 	assert.Contains(t, model.lastCopiedText, "review note")
 	assert.Contains(t, stripANSI(model.View().Content), "review note")
+}
+
+func TestModelInlineCommentSubmitCopiesReviewJSONWithClipboardDeadline(t *testing.T) {
+	writer := &deadlineRecordingClipboardWriter{}
+	model := NewModelWithClipboardWriter([]core.ReviewFile{reviewFileWithLines("demo.go", 1)}, nil, nil, core.ReviewRequest{DiffMode: core.DiffModeBranch}, writer)
+
+	updated, _ := model.Update(keyPress("c"))
+	model = updated.(Model)
+	for _, r := range "review note" {
+		updated, _ = model.Update(tea.KeyPressMsg{Text: string(r), Code: r})
+		model = updated.(Model)
+	}
+
+	updated, cmd := model.Update(tea.KeyPressMsg{Code: tea.KeyEnter, Mod: tea.ModCtrl})
+	model = updated.(Model)
+	require.NotNil(t, cmd)
+	updated, _ = model.Update(cmd())
+	model = updated.(Model)
+
+	assert.True(t, writer.hadDeadline, "clipboard writes should use a deadline so status feedback cannot remain stuck on Copying review JSON… forever")
+	assert.Contains(t, model.copyFeedback, "Review JSON copied")
 }
 
 func TestModelInlineCommentSubmitWithProviderDoesNotCopyReviewJSON(t *testing.T) {
