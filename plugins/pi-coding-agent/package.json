@@ -2,6 +2,10 @@
   "name": "ero-plugin-pi-coding-agent",
   "version": "0.1.0",
   "private": true,
+  "type": "module",
+  "scripts": {
+    "test": "node --test extension/*.test.js"
+  },
   "keywords": ["pi-package", "ero-plugin"],
   "peerDependencies": {
     "@earendil-works/pi-coding-agent": "*"
