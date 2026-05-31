@@ -98,6 +98,16 @@ func TestSelectBridgeSessionPrefersEnvironmentSessionID(t *testing.T) {
 	}
 }
 
+func TestSelectBridgeSessionAllowsStaleBranchForSameWorktree(t *testing.T) {
+	root := mustAbs(t, ".")
+	session, ok := selectBridgeSession([]bridgeSession{
+		{SessionID: "same-worktree-stale-branch", WorktreeRoot: root, CurrentBranch: "main"},
+	}, plugin.RepositoryMetadata{WorktreeRoot: root, CurrentBranch: "feature"}, "")
+	if !ok || session.SessionID != "same-worktree-stale-branch" {
+		t.Fatalf("expected stale same-worktree session, got %#v ok=%v", session, ok)
+	}
+}
+
 func TestSelectBridgeSessionMatchesBranchWhenKnown(t *testing.T) {
 	root := mustAbs(t, ".")
 	session, ok := selectBridgeSession([]bridgeSession{

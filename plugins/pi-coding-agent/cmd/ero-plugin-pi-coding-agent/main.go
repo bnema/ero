@@ -224,10 +224,7 @@ func scoreBridgeSession(session bridgeSession, candidates []string, repo plugin.
 	if score < 0 {
 		return -1
 	}
-	if repo.CurrentBranch != "" && session.CurrentBranch != "" {
-		if repo.CurrentBranch != session.CurrentBranch {
-			return -1
-		}
+	if repo.CurrentBranch != "" && session.CurrentBranch != "" && repo.CurrentBranch == session.CurrentBranch {
 		score += 4
 	}
 	if repo.HeadSHA != "" && session.HeadSHA != "" && repo.HeadSHA == session.HeadSHA {
