@@ -267,22 +267,6 @@ func (m Model) commentRangeMarker(rowIndex int) (render.CommentMarker, bool) {
 	return "", false
 }
 
-func (m Model) rowHasCommentRange(rowIndex int) bool {
-	if rowIndex < 0 || rowIndex >= len(m.reviewRows) || m.reviewDraft == nil {
-		return false
-	}
-	row := m.reviewRows[rowIndex]
-	if row.Kind != ReviewRowKindLine {
-		return false
-	}
-	for _, comment := range m.reviewDraft.Comments() {
-		if comment.FilePath == row.FilePath && lineInReviewRange(row.Line, comment.Range) {
-			return true
-		}
-	}
-	return false
-}
-
 func (m Model) rowHasActiveEditorRange(rowIndex int) bool {
 	if rowIndex < 0 || rowIndex >= len(m.reviewRows) || m.commentEditor == nil {
 		return false

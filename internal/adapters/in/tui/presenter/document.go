@@ -349,20 +349,6 @@ func contextPosition(file core.ReviewFile, sectionIndex int) ReviewContextPositi
 	}
 }
 
-func commentBelongsAfterRow(comment core.ReviewComment, row ReviewRow) bool {
-	if row.Kind != ReviewRowKindLine || row.FilePath != comment.FilePath {
-		return false
-	}
-	return reviewLineMatchesRef(row.Line, comment.Range.End)
-}
-
-func remoteThreadBelongsAfterRow(thread core.RemoteReviewThread, row ReviewRow) bool {
-	if thread.Unmapped || row.Kind != ReviewRowKindLine || row.FilePath != thread.FilePath {
-		return false
-	}
-	return reviewLineMatchesRef(row.Line, thread.Range.End)
-}
-
 func editorBelongsAfterRow(editor ReviewEditorAnnotation, row ReviewRow) bool {
 	if row.Kind != ReviewRowKindLine || row.FilePath != editor.FilePath {
 		return false

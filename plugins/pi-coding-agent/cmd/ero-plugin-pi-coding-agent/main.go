@@ -204,19 +204,75 @@ func selectBridgeSession(sessions []bridgeSession, repo plugin.RepositoryMetadat
 		return bridgeSession{}, false
 	}
 	candidates := candidatePaths(repo.RepoPath, repo.WorktreeRoot)
-	var best bridgeSession
-	bestScore := -1
-	for _, session := range sessions {
-		score := scoreBridgeSession(session, candidates, repo)
-		if score < 0 {
-			continue
-		}
-		if score > bestScore || (score == bestScore && session.UpdatedAt > best.UpdatedAt) {
-			best = session
-			bestScore = score
+	matches := scoredBridgeSessions(sessions, candidates, repo)
+	if len(matches) == 0 {
+		return bridgeSession{}, false
+	}
+	if repo.HeadSHA != "" {
+		headMatches := filterScoredSessions(matches, func(session bridgeSession) bool {
+			return session.HeadSHA != "" && session.HeadSHA == repo.HeadSHA
+		})
+		if len(headMatches) > 0 {
+			return bestScoredSession(headMatches)
 		}
 	}
-	return best, bestScore >= 0
+	if repo.CurrentBranch != "" {
+		branchMatches := filterScoredSessions(matches, func(session bridgeSession) bool {
+			return session.CurrentBranch != "" && session.CurrentBranch == repo.CurrentBranch
+		})
+		if len(branchMatches) > 0 {
+			return bestScoredSession(branchMatches)
+		}
+		branchlessMatches := filterScoredSessions(matches, func(session bridgeSession) bool {
+			return session.CurrentBranch == ""
+		})
+		if len(branchlessMatches) > 0 {
+			return bestScoredSession(branchlessMatches)
+		}
+		if len(matches) > 1 {
+			return bridgeSession{}, false
+		}
+	}
+	return bestScoredSession(matches)
+}
+
+type scoredBridgeSession struct {
+	session bridgeSession
+	score   int
+}
+
+func scoredBridgeSessions(sessions []bridgeSession, candidates []string, repo plugin.RepositoryMetadata) []scoredBridgeSession {
+	matches := make([]scoredBridgeSession, 0, len(sessions))
+	for _, session := range sessions {
+		score := scoreBridgeSession(session, candidates, repo)
+		if score >= 0 {
+			matches = append(matches, scoredBridgeSession{session: session, score: score})
+		}
+	}
+	return matches
+}
+
+func filterScoredSessions(matches []scoredBridgeSession, keep func(bridgeSession) bool) []scoredBridgeSession {
+	filtered := make([]scoredBridgeSession, 0, len(matches))
+	for _, match := range matches {
+		if keep(match.session) {
+			filtered = append(filtered, match)
+		}
+	}
+	return filtered
+}
+
+func bestScoredSession(matches []scoredBridgeSession) (bridgeSession, bool) {
+	if len(matches) == 0 {
+		return bridgeSession{}, false
+	}
+	best := matches[0]
+	for _, match := range matches[1:] {
+		if match.score > best.score || (match.score == best.score && match.session.UpdatedAt > best.session.UpdatedAt) {
+			best = match
+		}
+	}
+	return best.session, true
 }
 
 func scoreBridgeSession(session bridgeSession, candidates []string, repo plugin.RepositoryMetadata) int {

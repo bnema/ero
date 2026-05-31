@@ -23,6 +23,7 @@ export default function eroPiCodingAgentBridge(pi) {
 
   const server = createServer((conn) => {
     let data = "";
+    let bytesReceived = 0;
     let closed = false;
     let rejected = false;
 
@@ -43,11 +44,13 @@ export default function eroPiCodingAgentBridge(pi) {
     });
     conn.on("data", (chunk) => {
       if (rejected) return;
-      data += chunk;
-      if (data.length > MAX_REQUEST_BYTES) {
+      bytesReceived += Buffer.byteLength(chunk, "utf8");
+      if (bytesReceived > MAX_REQUEST_BYTES) {
         rejected = true;
         respond({ ok: false, error: "request body too large" });
+        return;
       }
+      data += chunk;
     });
     conn.on("end", () => {
       if (rejected || closed) return;
@@ -140,11 +143,11 @@ export default function eroPiCodingAgentBridge(pi) {
 
   async function register(ctx) {
     const sessionId = ctx.sessionManager.getSessionId();
-    activeSessionId = sessionId;
-    currentSessionId = sessionId;
+    if (stopped || activeSessionId !== sessionId) return;
     await ensureListening(sessionId);
     const git = await readGitMetadata(pi, ctx.cwd);
     if (stopped || activeSessionId !== sessionId) return;
+    currentSessionId = sessionId;
     upsertSession(statePath, bridgeSessionRecord(ctx, git, socketPath, token));
     ctx.ui.setStatus("ero-pi-coding-agent", `Ero bridge ${sessionId.slice(0, 8)}`);
   }
