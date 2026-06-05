@@ -254,6 +254,11 @@ func (m Model) providerClientsFor(infos []core.ReviewProviderInfo) []providerCli
 		selected[info.ID] = info
 	}
 	result := make([]providerClientWithInfo, 0, len(infos))
+	if m.activeProvider != nil && m.activeRuntimeInfo.ID != "" {
+		if info, ok := selected[m.activeRuntimeInfo.ID]; ok {
+			return append(result, providerClientWithInfo{info: info, client: m.activeProvider})
+		}
+	}
 	for _, client := range m.reviewProviders {
 		providerInfo, ok := m.providerInfoByClient[client]
 		if !ok {

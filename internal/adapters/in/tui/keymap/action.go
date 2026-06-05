@@ -3,30 +3,34 @@ package keymap
 type Action string
 
 const (
-	ActionNone              Action = ""
-	ActionQuit              Action = "quit"
-	ActionMoveUp            Action = "move_up"
-	ActionMoveDown          Action = "move_down"
-	ActionPageUp            Action = "page_up"
-	ActionPageDown          Action = "page_down"
-	ActionMoveStart         Action = "move_start"
-	ActionMoveEnd           Action = "move_end"
-	ActionToggleSelection   Action = "toggle_selection"
-	ActionClearSelection    Action = "clear_selection"
-	ActionOpenComment       Action = "open_comment"
-	ActionClearReview       Action = "clear_review"
-	ActionPublishReview     Action = "publish_review"
-	ActionCopyReviewJSON    Action = "copy_review_json"
-	ActionCopyPlain         Action = "copy_plain"
-	ActionCopyWithMetadata  Action = "copy_with_metadata"
-	ActionOpenFileSearch    Action = "open_file_search"
-	ActionOpenGrepSearch    Action = "open_grep_search"
-	ActionOpenDiffMode      Action = "open_diff_mode"
-	ActionPreviousFile      Action = "previous_file"
-	ActionNextFile          Action = "next_file"
-	ActionExpandAllContext  Action = "expand_all_context"
-	ActionExpandMoreContext Action = "expand_more_context"
-	ActionOpenHelp          Action = "open_help"
+	ActionNone               Action = ""
+	ActionQuit               Action = "quit"
+	ActionMoveUp             Action = "move_up"
+	ActionMoveDown           Action = "move_down"
+	ActionPageUp             Action = "page_up"
+	ActionPageDown           Action = "page_down"
+	ActionMoveStart          Action = "move_start"
+	ActionMoveEnd            Action = "move_end"
+	ActionToggleSelection    Action = "toggle_selection"
+	ActionClearSelection     Action = "clear_selection"
+	ActionOpenComment        Action = "open_comment"
+	ActionClearReview        Action = "clear_review"
+	ActionPublishReview      Action = "publish_review"
+	ActionCopyReviewJSON     Action = "copy_review_json"
+	ActionCopyPlain          Action = "copy_plain"
+	ActionCopyWithMetadata   Action = "copy_with_metadata"
+	ActionOpenFileSearch     Action = "open_file_search"
+	ActionOpenGrepSearch     Action = "open_grep_search"
+	ActionOpenDiffMode       Action = "open_diff_mode"
+	ActionPreviousFile       Action = "previous_file"
+	ActionNextFile           Action = "next_file"
+	ActionExpandAllContext   Action = "expand_all_context"
+	ActionExpandMoreContext  Action = "expand_more_context"
+	ActionCycleProvider      Action = "cycle_provider"
+	ActionOpenProviderPicker Action = "open_provider_picker"
+	ActionRefreshProvider    Action = "refresh_provider"
+	ActionTogglePRSheet      Action = "toggle_pr_sheet"
+	ActionOpenHelp           Action = "open_help"
 )
 
 func ReviewAction(key string) Action {
@@ -75,6 +79,14 @@ func ReviewAction(key string) Action {
 		return ActionExpandAllContext
 	case "enter":
 		return ActionExpandMoreContext
+	case "g":
+		return ActionCycleProvider
+	case "G":
+		return ActionOpenProviderPicker
+	case "r":
+		return ActionRefreshProvider
+	case "o":
+		return ActionTogglePRSheet
 	case "?":
 		return ActionOpenHelp
 	default:

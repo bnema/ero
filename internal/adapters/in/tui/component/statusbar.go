@@ -3,21 +3,28 @@ package component
 import (
 	"fmt"
 	"strings"
+	"time"
 
 	"charm.land/lipgloss/v2"
 	"github.com/charmbracelet/x/ansi"
 
 	"ero/internal/adapters/in/tui/theme"
+	"ero/internal/core"
 )
 
 type StatusModel struct {
-	AppName       string
-	Mode          string
-	FileCount     int
-	ProviderCount int
-	CurrentFile   string
-	Message       string
-	ScrollPercent float64
+	AppName             string
+	Mode                string
+	FileCount           int
+	ProviderCount       int
+	CurrentFile         string
+	Message             string
+	ScrollPercent       float64
+	ActiveProviderLabel string
+	ActiveRuntimeName   string
+	ProviderSync        core.ProviderSyncState
+	ShowNoProvider      bool
+	NerdFont            bool
 }
 
 type StatusBar struct {
@@ -40,6 +47,9 @@ func (c StatusBar) Render(model StatusModel) string {
 	}
 	if model.ProviderCount > 0 {
 		segments = append(segments, statusSegment{style: theme.StatusInfoStyle, label: providerCountLabel(model.ProviderCount)})
+	}
+	if syncLabel := providerSyncLabel(model); syncLabel != "" {
+		segments = append(segments, statusSegment{style: theme.StatusInfoStyle, label: syncLabel})
 	}
 	prefix := renderStatusSegments(leftWidth, segments...)
 	percent := renderStatusSegments(leftWidth-lipgloss.Width(prefix), statusSegment{style: theme.StatusInfoStyle, label: fmt.Sprintf("%3.0f%%", model.ScrollPercent*100)})
@@ -123,6 +133,76 @@ func providerCountLabel(count int) string {
 		return "1 provider"
 	}
 	return fmt.Sprintf("%d providers", count)
+}
+
+func providerSyncLabel(model StatusModel) string {
+	provider := strings.TrimSpace(model.ActiveProviderLabel)
+	if provider == "" {
+		if model.ShowNoProvider {
+			return "no provider"
+		}
+		return ""
+	}
+	if runtimeName := strings.TrimSpace(model.ActiveRuntimeName); runtimeName != "" && runtimeName != provider {
+		provider += "/" + runtimeName
+	}
+
+	parts := []string{provider}
+	status := providerSyncStatusLabel(model.ProviderSync.Status)
+	if status != "" {
+		if model.NerdFont {
+			status = providerSyncStatusSymbol(model.ProviderSync.Status) + " " + status
+		}
+		parts = append(parts, status)
+	}
+	if model.ProviderSync.LastError != "" {
+		parts = append(parts, TruncateRunes(model.ProviderSync.LastError, 24))
+	}
+	if model.ProviderSync.LastSyncAt != nil {
+		parts = append(parts, "last "+formatStatusTime(*model.ProviderSync.LastSyncAt))
+	}
+	if model.ProviderSync.NextSyncAt != nil {
+		parts = append(parts, "next "+formatStatusTime(*model.ProviderSync.NextSyncAt))
+	}
+	return strings.Join(parts, " ")
+}
+
+func providerSyncStatusLabel(status core.ProviderSyncStatus) string {
+	switch status {
+	case core.ProviderSyncStatusLoadingCache:
+		return "cache"
+	case core.ProviderSyncStatusSyncing:
+		return "syncing"
+	case core.ProviderSyncStatusSynced:
+		return "synced"
+	case core.ProviderSyncStatusFailed:
+		return "failed"
+	case core.ProviderSyncStatusBackingOff:
+		return "backoff"
+	default:
+		return ""
+	}
+}
+
+func providerSyncStatusSymbol(status core.ProviderSyncStatus) string {
+	switch status {
+	case core.ProviderSyncStatusLoadingCache:
+		return "󰃨"
+	case core.ProviderSyncStatusSyncing:
+		return "󰑓"
+	case core.ProviderSyncStatusSynced:
+		return ""
+	case core.ProviderSyncStatusFailed:
+		return ""
+	case core.ProviderSyncStatusBackingOff:
+		return "󰌾"
+	default:
+		return "󰓦"
+	}
+}
+
+func formatStatusTime(value time.Time) string {
+	return value.UTC().Format("15:04")
 }
 
 func TruncateRunes(value string, width int) string {

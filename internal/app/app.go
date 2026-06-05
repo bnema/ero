@@ -17,6 +17,7 @@ import (
 	clipboardadapter "ero/internal/adapters/out/clipboard"
 	gitadapter "ero/internal/adapters/out/git"
 	pluginadapter "ero/internal/adapters/out/plugin"
+	providercache "ero/internal/adapters/out/providercache"
 	chromatokenizer "ero/internal/adapters/out/syntax/chroma"
 	"ero/internal/core"
 	"ero/internal/logging"
@@ -101,16 +102,11 @@ func newAppWithClipboard(cfg *viper.Viper, loader reviewLoader, runner tuiRunner
 			return err
 		}
 		log.Info().Int("files", len(files)).Msg("review loaded")
-		var reviewProviders []ports.ReviewProviderClient
 		pluginManager := pluginadapter.NewManager()
 		providerLoader := pluginadapter.NewReviewProviderLoader(pluginManager)
-		_ = providerPollingConfigFromConfig(cfg)
-		providers, err := buildReviewProviders(ctx, providerLoader, providerLoader)
-		if err != nil {
-			log.Warn().Err(err).Msg("load review providers failed")
-		} else {
-			reviewProviders = providers
-		}
+		providerStore := providercache.NewXDGStore()
+		activeProviderService := NewActiveProviderService(providerLoader, providerLoader, providerStore, providerStore, providerPollingConfigFromConfig(cfg))
+		activeProvider := &tuiActiveProviderController{catalog: providerLoader, service: activeProviderService}
 		var metadata ports.GitMetadataReader
 		if reader, ok := loader.(ports.GitMetadataReader); ok {
 			metadata = reader
@@ -118,7 +114,7 @@ func newAppWithClipboard(cfg *viper.Viper, loader reviewLoader, runner tuiRunner
 			metadata = reader
 		}
 		reviewContext := buildReviewContext(initialRequest, files, metadata, version)
-		err = runner.Run(tui.NewModelWithReviewProvidersContext(ctx, files, terminal.NewCapabilities(), loader, initialRequest, clipboardWriter, reviewContext, reviewProviders))
+		err = runner.Run(tui.NewModelWithActiveProviderContext(ctx, files, terminal.NewCapabilities(), loader, initialRequest, clipboardWriter, reviewContext, activeProvider, nil))
 		if err != nil {
 			log.Error().Err(err).Msg("tui exited with error")
 			return err

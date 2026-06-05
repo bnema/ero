@@ -51,12 +51,46 @@ type clipboardCopyFailedMsg struct {
 	err error
 }
 
-type reviewProvidersLoadedMsg struct {
-	infos   []core.ReviewProviderInfo
-	threads []core.RemoteReviewThread
-	clients map[ports.ReviewProviderClient]core.ReviewProviderInfo
-	errs    []string
+type activeProviderController interface {
+	Catalog(context.Context) ([]ports.ReviewProviderDescriptor, error)
+	Start(context.Context, core.ReviewContext) (ActiveProviderState, error)
+	Refresh(context.Context, core.ReviewContext, bool) (ActiveProviderState, error)
+	Switch(context.Context, core.ReviewContext, string) (ActiveProviderState, error)
+	PublishReview(context.Context, core.PublishReviewRequest) (core.PublishReviewResult, error)
+	Generation() int64
+	CompleteTimer(context.Context, core.ReviewContext, int64) (ActiveProviderState, error)
+	Close() error
 }
+
+// ActiveProviderState is the TUI-facing active provider snapshot.
+type ActiveProviderState struct {
+	StableProviderKey string
+	RuntimeProviderID string
+	RuntimeInfo       core.ReviewProviderInfo
+	Snapshot          core.ProviderSnapshot
+	FromCache         bool
+	Syncing           bool
+	LastError         error
+}
+
+type activeProviderStartedMsg struct {
+	catalog []ports.ReviewProviderDescriptor
+	state   ActiveProviderState
+	err     error
+}
+
+type activeProviderRefreshedMsg struct {
+	state ActiveProviderState
+	err   error
+}
+
+type activeProviderSwitchedMsg struct {
+	stableKey string
+	state     ActiveProviderState
+	err       error
+}
+
+type activeProviderPollDueMsg struct{ generation int64 }
 
 type Model struct {
 	title                string
@@ -89,10 +123,19 @@ type Model struct {
 	commentEditor        *InlineCommentEditor
 	reviewContext        core.ReviewContext
 	reviewProviders      []ports.ReviewProviderClient
+	activeProvider       activeProviderController
+	providerCatalog      []ports.ReviewProviderDescriptor
+	activeProviderKey    string
+	activeRuntimeID      string
+	activeRuntimeInfo    core.ReviewProviderInfo
+	providerSyncState    core.ProviderSyncState
+	providerOverview     *core.ProviderOverview
 	remoteThreads        []core.RemoteReviewThread
 	providerInfos        []core.ReviewProviderInfo
 	providerInfoByClient map[ports.ReviewProviderClient]core.ReviewProviderInfo
+	providerPicker       providerPickerState
 	publish              publishState
+	prSheet              prSheetState
 	ctx                  context.Context
 	reviewLineCache      *render.ReviewLineCache
 	cachedEditorWidth    int
@@ -120,6 +163,10 @@ func NewModelWithReviewProviders(files []core.ReviewFile, terminal ports.Termina
 }
 
 func NewModelWithReviewProvidersContext(ctx context.Context, files []core.ReviewFile, terminal ports.Terminal, loader reviewLoader, request core.ReviewRequest, clipboardWriter ports.ClipboardWriter, reviewContext core.ReviewContext, providers []ports.ReviewProviderClient) Model {
+	return NewModelWithActiveProviderContext(ctx, files, terminal, loader, request, clipboardWriter, reviewContext, nil, providers)
+}
+
+func NewModelWithActiveProviderContext(ctx context.Context, files []core.ReviewFile, terminal ports.Terminal, loader reviewLoader, request core.ReviewRequest, clipboardWriter ports.ClipboardWriter, reviewContext core.ReviewContext, activeProvider activeProviderController, providers []ports.ReviewProviderClient) Model {
 	if ctx == nil {
 		ctx = context.Background()
 	}
@@ -142,6 +189,7 @@ func NewModelWithReviewProvidersContext(ctx context.Context, files []core.Review
 		reviewDraft:          core.NewReviewDraft(),
 		reviewContext:        reviewContext,
 		reviewProviders:      append([]ports.ReviewProviderClient(nil), providers...),
+		activeProvider:       activeProvider,
 		providerInfos:        nil,
 		providerInfoByClient: map[ports.ReviewProviderClient]core.ReviewProviderInfo{},
 		remoteThreads:        nil,
@@ -157,6 +205,9 @@ func NewModelWithReviewProvidersContext(ctx context.Context, files []core.Review
 }
 
 func (m Model) Init() tea.Cmd {
+	if m.activeProvider != nil {
+		return m.startActiveProviderCmd()
+	}
 	if len(m.reviewProviders) == 0 {
 		return nil
 	}
@@ -213,6 +264,42 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case clipboardCopyFailedMsg:
 		m.setCopyFeedback("Copy failed: " + msg.err.Error())
 		return m, m.expireCopyFeedbackCmd()
+	case prSheetToggledMsg:
+		return m.TogglePRSheet(), nil
+	case prSheetScrolledMsg:
+		return m.ScrollPRSheet(msg.delta), nil
+	case activeProviderStartedMsg:
+		m.providerCatalog = msg.catalog
+		m.applyActiveProviderState(msg.state)
+		if msg.err != nil {
+			m.setCopyFeedback("Provider unavailable: " + msg.err.Error())
+			m.syncReviewViewport()
+			return m, m.expireCopyFeedbackCmd()
+		}
+		m.syncReviewViewport()
+		return m, m.refreshActiveProviderCmd(false)
+	case activeProviderRefreshedMsg:
+		m.applyActiveProviderState(msg.state)
+		if msg.err != nil {
+			m.setCopyFeedback("Provider refresh failed: " + msg.err.Error())
+			m.syncReviewViewport()
+			return m, tea.Batch(m.expireCopyFeedbackCmd(), m.scheduleActiveProviderPollCmd())
+		}
+		m.syncReviewViewport()
+		return m, m.scheduleActiveProviderPollCmd()
+	case activeProviderSwitchedMsg:
+		if msg.err != nil {
+			m.clearActiveProviderRemoteData()
+			m.activeProviderKey = msg.stableKey
+			m.setCopyFeedback("Provider switch failed: " + msg.err.Error())
+			m.syncReviewViewport()
+			return m, m.expireCopyFeedbackCmd()
+		}
+		m.applyActiveProviderState(msg.state)
+		m.syncReviewViewport()
+		return m, m.refreshActiveProviderCmd(false)
+	case activeProviderPollDueMsg:
+		return m, m.completeActiveProviderTimerCmd(msg.generation)
 	case reviewProvidersLoadedMsg:
 		m.providerInfos = msg.infos
 		m.remoteThreads = msg.threads
@@ -248,6 +335,9 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		if m.search.active() {
 			return m.updateSearch(msg)
+		}
+		if m.providerPicker.open {
+			return m.updateProviderPicker(msg)
 		}
 		if m.publish.active {
 			return m.updatePublishReview(msg)
@@ -304,6 +394,14 @@ func (m Model) updateReviewAction(action keymap.Action) (tea.Model, tea.Cmd) {
 		m.showAllContext()
 	case keymap.ActionExpandMoreContext:
 		m.showMoreContext(contextStep)
+	case keymap.ActionCycleProvider:
+		return m, m.cycleProviderCmd()
+	case keymap.ActionOpenProviderPicker:
+		m = m.openProviderPicker()
+	case keymap.ActionRefreshProvider:
+		return m, m.refreshActiveProviderCmd(true)
+	case keymap.ActionTogglePRSheet:
+		m = m.TogglePRSheet()
 	case keymap.ActionOpenHelp:
 		m.helpActive = true
 	case keymap.ActionNone:
@@ -323,13 +421,18 @@ func (m Model) View() tea.View {
 	content := lipgloss.JoinVertical(lipgloss.Left,
 		review,
 		NewStatusBar(m.width).Render(StatusModel{
-			AppName:       m.title,
-			Mode:          diffModeLabel(m.diffMode, m.nerdFont),
-			FileCount:     len(m.files),
-			ProviderCount: len(m.providerInfos),
-			CurrentFile:   m.activeLocation(),
-			Message:       m.copyFeedback,
-			ScrollPercent: m.reviewViewport.ScrollPercent(),
+			AppName:             m.title,
+			Mode:                diffModeLabel(m.diffMode, m.nerdFont),
+			FileCount:           len(m.files),
+			ProviderCount:       m.statusProviderCount(),
+			CurrentFile:         m.activeLocation(),
+			Message:             m.copyFeedback,
+			ScrollPercent:       m.reviewViewport.ScrollPercent(),
+			ActiveProviderLabel: m.activeRuntimeInfo.Label,
+			ActiveRuntimeName:   m.activeRuntimeID,
+			ProviderSync:        m.providerSyncState,
+			ShowNoProvider:      m.activeProvider != nil && m.activeProviderKey == "" && m.activeRuntimeInfo.ID == "",
+			NerdFont:            m.nerdFont,
 		}),
 	)
 	if m.search.active() {
@@ -337,6 +440,12 @@ func (m Model) View() tea.View {
 	}
 	if m.publish.active {
 		content = m.renderPublishOverlay(content)
+	}
+	if m.providerPicker.open {
+		content = m.renderProviderPickerOverlay(content)
+	}
+	if m.prSheet.open {
+		content = m.renderPRSheetOverlay(content)
 	}
 	if m.helpActive {
 		content = m.renderHelpOverlay(content)

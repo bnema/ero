@@ -19,6 +19,7 @@ func DefaultProviderPollingConfig() ProviderPollingConfig {
 type ActiveProviderState struct {
 	StableProviderKey string
 	RuntimeProviderID string
+	RuntimeInfo       core.ReviewProviderInfo
 	Snapshot          core.ProviderSnapshot
 	FromCache         bool
 	Syncing           bool
@@ -88,7 +89,7 @@ func (s *ActiveProviderService) Start(ctx context.Context, review core.ReviewCon
 		if s.prefs != nil {
 			_ = s.prefs.SaveActiveProviderKey(ctx, core.RepositoryIdentity(review.Repository), d.Key)
 		}
-		st := s.loadCachedState(ctx, review, d.Key, info.ID)
+		st := s.loadCachedState(ctx, review, d.Key, info.ID, info)
 		s.setState(gen, st)
 		return st, nil
 	}
@@ -130,12 +131,26 @@ func (s *ActiveProviderService) Switch(ctx context.Context, review core.ReviewCo
 			if s.prefs != nil {
 				_ = s.prefs.SaveActiveProviderKey(ctx, core.RepositoryIdentity(review.Repository), d.Key)
 			}
-			st := s.loadCachedState(ctx, review, d.Key, info.ID)
+			st := s.loadCachedState(ctx, review, d.Key, info.ID, info)
 			s.setState(gen, st)
 			return st, nil
 		}
 	}
 	return ActiveProviderState{}, core.NewProviderError(core.ProviderErrorNotApplicable, "provider descriptor not found", nil)
+}
+
+func (s *ActiveProviderService) PublishReview(ctx context.Context, request core.PublishReviewRequest) (core.PublishReviewResult, error) {
+	s.mu.Lock()
+	client := s.client
+	runtimeID := s.runtimeID
+	s.mu.Unlock()
+	if client == nil {
+		return core.PublishReviewResult{}, core.NewProviderError(core.ProviderErrorNotApplicable, "no active provider", nil)
+	}
+	if request.ProviderID == "" {
+		request.ProviderID = runtimeID
+	}
+	return client.PublishReview(ctx, request)
 }
 
 func (s *ActiveProviderService) Refresh(ctx context.Context, review core.ReviewContext, manual bool) (ActiveProviderState, error) {
@@ -176,7 +191,7 @@ func (s *ActiveProviderService) Refresh(ctx context.Context, review core.ReviewC
 	if s.cache != nil {
 		_ = s.cache.SaveProviderSnapshot(ctx, snap)
 	}
-	st := ActiveProviderState{StableProviderKey: key, RuntimeProviderID: runtimeID, Snapshot: snap, NextSyncAt: next}
+	st := ActiveProviderState{StableProviderKey: key, RuntimeProviderID: runtimeID, RuntimeInfo: prev.RuntimeInfo, Snapshot: snap, NextSyncAt: next}
 	s.setState(gen, st)
 	return st, nil
 }
@@ -276,8 +291,11 @@ func (s *ActiveProviderService) probe(ctx context.Context, d ports.ReviewProvide
 	}
 	return client, info, nil
 }
-func (s *ActiveProviderService) loadCachedState(ctx context.Context, review core.ReviewContext, key, runtimeID string) ActiveProviderState {
+func (s *ActiveProviderService) loadCachedState(ctx context.Context, review core.ReviewContext, key, runtimeID string, info ...core.ReviewProviderInfo) ActiveProviderState {
 	st := ActiveProviderState{StableProviderKey: key, RuntimeProviderID: runtimeID}
+	if len(info) > 0 {
+		st.RuntimeInfo = info[0]
+	}
 	if s.cache != nil {
 		if snap, ok, _ := s.cache.LoadProviderSnapshot(ctx, core.NewReviewContextKey(key, review)); ok {
 			snap.Cached = true

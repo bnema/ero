@@ -44,6 +44,10 @@ func TestReviewAction(t *testing.T) {
 		{name: "next file n alias", key: "n", want: ActionNextFile},
 		{name: "expand all context", key: "a", want: ActionExpandAllContext},
 		{name: "expand more context enter binding", key: "enter", want: ActionExpandMoreContext},
+		{name: "cycle provider", key: "g", want: ActionCycleProvider},
+		{name: "open provider picker", key: "G", want: ActionOpenProviderPicker},
+		{name: "refresh provider", key: "r", want: ActionRefreshProvider},
+		{name: "toggle pr sheet", key: "o", want: ActionTogglePRSheet},
 		{name: "open help", key: "?", want: ActionOpenHelp},
 		{name: "unknown", key: "R", want: ActionNone},
 	}
