@@ -108,9 +108,9 @@ type ghReviewThread struct {
 	ID         string `json:"id"`
 	Path       string `json:"path"`
 	Line       int    `json:"line"`
-	Side       string `json:"side"`
+	Side       string `json:"diffSide"`
 	StartLine  int    `json:"startLine"`
-	StartSide  string `json:"startSide"`
+	StartSide  string `json:"startDiffSide"`
 	IsOutdated bool   `json:"isOutdated"`
 	Comments   struct {
 		Nodes    []ghReviewThreadComment `json:"nodes"`
@@ -172,9 +172,9 @@ const githubPRSnapshotQuery = `query EroPRSnapshot($owner:String!, $name:String!
           id
           path
           line
-          side
+          diffSide
           startLine
-          startSide
+          startDiffSide
           isOutdated
           comments(first:100) {
             nodes { id url body createdAt author { login } }

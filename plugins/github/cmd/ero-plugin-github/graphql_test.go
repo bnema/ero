@@ -3,6 +3,9 @@ package main
 import (
 	"context"
 	"maps"
+	"os"
+	"strconv"
+	"strings"
 	"testing"
 	"time"
 
@@ -35,6 +38,15 @@ func (f *fakeGraphQLClient) DoWithContext(_ context.Context, query string, varia
 	return nil
 }
 
+func TestGitHubPRSnapshotQueryUsesReviewThreadSchemaFieldNames(t *testing.T) {
+	if strings.Contains(githubPRSnapshotQuery, "\n          side\n") || strings.Contains(githubPRSnapshotQuery, "\n          startSide\n") {
+		t.Fatalf("review thread query must use GitHub schema fields diffSide/startDiffSide, not side/startSide:\n%s", githubPRSnapshotQuery)
+	}
+	if !strings.Contains(githubPRSnapshotQuery, "\n          diffSide\n") || !strings.Contains(githubPRSnapshotQuery, "\n          startDiffSide\n") {
+		t.Fatalf("review thread query is missing diffSide/startDiffSide:\n%s", githubPRSnapshotQuery)
+	}
+}
+
 func TestGitHubGraphQLMapping(t *testing.T) {
 	now := time.Date(2026, 1, 2, 3, 4, 5, 0, time.UTC)
 	actor := &ghActor{Login: "octo"}
@@ -58,6 +70,31 @@ func TestGitHubGraphQLMapping(t *testing.T) {
 	}
 	if len(s.Threads) != 4 || s.Threads[0].Range.End.NewLineNumber != 10 || s.Threads[1].Range.Start.NewLineNumber != 18 || s.Threads[2].Range.End.OldLineNumber != 7 || !s.Threads[3].Unmapped {
 		t.Fatalf("threads not mapped/classified: %#v", s.Threads)
+	}
+}
+
+func TestLoadRemoteSnapshotAgainstGitHubWhenEnabled(t *testing.T) {
+	prNumber := strings.TrimSpace(os.Getenv("ERO_GITHUB_INTEGRATION_PR"))
+	if prNumber == "" {
+		t.Skip("set ERO_GITHUB_INTEGRATION_PR to run GitHub integration snapshot fetch")
+	}
+	number, err := strconv.Atoi(prNumber)
+	if err != nil {
+		t.Fatalf("invalid ERO_GITHUB_INTEGRATION_PR: %v", err)
+	}
+	client, err := defaultGraphQLClient()
+	if err != nil {
+		t.Fatalf("defaultGraphQLClient: %v", err)
+	}
+	got, err := fetchGitHubPRSnapshot(context.Background(), client, githubRemote{Owner: "bnema", Name: "ero"}, number)
+	if err != nil {
+		t.Fatalf("fetchGitHubPRSnapshot(%d): %v", number, err)
+	}
+	if got.Number != number || got.Title == "" {
+		t.Fatalf("unexpected snapshot metadata: %#v", got)
+	}
+	if len(got.Threads) == 0 {
+		t.Fatalf("expected at least one review thread on PR %d", number)
 	}
 }
 
