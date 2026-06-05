@@ -17,8 +17,9 @@ import (
 const providerID = "github"
 
 type githubProvider struct {
-	getenv func(string) string
-	execGH func(context.Context, ...string) (string, string, error)
+	getenv           func(string) string
+	execGH           func(context.Context, ...string) (string, string, error)
+	newGraphQLClient graphQLClientFactory
 }
 
 type ghPR struct {
@@ -53,7 +54,8 @@ func (p githubProvider) Initialize(_ context.Context, req plugin.InitializeReque
 			Label: "GitHub",
 			Name:  "ero-plugin-github",
 			Capabilities: plugin.ReviewProviderCapabilities{
-				LoadRemoteComments: false,
+				LoadRemoteComments: true,
+				LoadRemoteSnapshot: true,
 				PublishReview:      true,
 				Decisions: []plugin.ReviewDecision{
 					plugin.ReviewDecisionComment,
@@ -66,17 +68,48 @@ func (p githubProvider) Initialize(_ context.Context, req plugin.InitializeReque
 	}, nil
 }
 
-func (p githubProvider) DetectContext(_ context.Context, req plugin.DetectContextRequest) (plugin.DetectContextResult, error) {
-	for _, remote := range req.Context.Repository.Remotes {
-		if isGitHubRemote(remote.URL) {
-			return plugin.DetectContextResult{Result: plugin.DetectionResult{Applicable: true, Reason: "GitHub remote detected"}}, nil
-		}
+func (p githubProvider) DetectContext(ctx context.Context, req plugin.DetectContextRequest) (plugin.DetectContextResult, error) {
+	remote, ok := firstGitHubRemote(req.Context.Repository.Remotes)
+	if !ok {
+		return plugin.DetectContextResult{Result: plugin.DetectionResult{Applicable: false, Reason: "no GitHub remote detected"}}, nil
 	}
-	return plugin.DetectContextResult{Result: plugin.DetectionResult{Applicable: false, Reason: "no GitHub remote detected"}}, nil
+	client, err := p.graphQLClient()
+	if err != nil {
+		return plugin.DetectContextResult{}, plugin.NewErrorf(plugin.ErrorAuthRequired, "create GitHub GraphQL client: %v", err)
+	}
+	candidates, err := fetchGitHubPRCandidates(ctx, client, remote)
+	if err != nil {
+		return plugin.DetectContextResult{}, err
+	}
+	match, err := matchGitHubPR(req.Context, candidates)
+	if err != nil {
+		return plugin.DetectContextResult{Result: plugin.DetectionResult{Applicable: false, Reason: err.Error()}}, nil
+	}
+	return plugin.DetectContextResult{Result: plugin.DetectionResult{Applicable: true, Reason: "matched GitHub pull request " + githubPRSummary(match)}}, nil
 }
 
-func (p githubProvider) LoadRemoteThreads(_ context.Context, _ plugin.LoadRemoteThreadsRequest) (plugin.LoadRemoteThreadsResult, error) {
-	return plugin.LoadRemoteThreadsResult{}, plugin.NewError(plugin.ErrorUnsupportedCapability, "GitHub remote comment loading is not implemented yet")
+func (p githubProvider) LoadRemoteSnapshot(ctx context.Context, req plugin.LoadRemoteSnapshotRequest) (plugin.LoadRemoteSnapshotResult, error) {
+	remote, ok := firstGitHubRemote(req.Context.Repository.Remotes)
+	if !ok {
+		return plugin.LoadRemoteSnapshotResult{}, plugin.NewError(plugin.ErrorNotApplicable, "no GitHub remote detected")
+	}
+	client, err := p.graphQLClient()
+	if err != nil {
+		return plugin.LoadRemoteSnapshotResult{}, plugin.NewErrorf(plugin.ErrorAuthRequired, "create GitHub GraphQL client: %v", err)
+	}
+	snapshot, err := fetchGitHubSnapshot(ctx, client, remote, req.Context)
+	if err != nil {
+		return plugin.LoadRemoteSnapshotResult{}, err
+	}
+	return snapshotResultFromGitHub(snapshot), nil
+}
+
+func (p githubProvider) LoadRemoteThreads(ctx context.Context, req plugin.LoadRemoteThreadsRequest) (plugin.LoadRemoteThreadsResult, error) {
+	snapshot, err := p.LoadRemoteSnapshot(ctx, plugin.LoadRemoteSnapshotRequest{Context: req.Context})
+	if err != nil {
+		return plugin.LoadRemoteThreadsResult{}, err
+	}
+	return plugin.LoadRemoteThreadsResult{Threads: snapshot.Threads}, nil
 }
 
 func (p githubProvider) PublishReview(ctx context.Context, req plugin.PublishReviewParams) (plugin.PublishReviewResultData, error) {
@@ -86,7 +119,7 @@ func (p githubProvider) PublishReview(ctx context.Context, req plugin.PublishRev
 	ctx, cancel := context.WithTimeout(ctx, 15*time.Second)
 	defer cancel()
 
-	pr, err := p.currentPullRequest(ctx)
+	pr, err := p.currentPullRequest(ctx, req.Payload.Context)
 	if err != nil {
 		return plugin.PublishReviewResultData{}, err
 	}
@@ -100,7 +133,7 @@ func (p githubProvider) PublishReview(ctx context.Context, req plugin.PublishRev
 		if message == "" {
 			message = err.Error()
 		}
-		return plugin.PublishReviewResultData{}, plugin.NewErrorf(plugin.ErrorNetwork, "publish GitHub review: %s", message)
+		return plugin.PublishReviewResultData{}, classifyGitHubRemoteMessage("publish GitHub review", message)
 	}
 	var response ghReviewResponse
 	if err := json.Unmarshal([]byte(stdout), &response); err != nil {
@@ -117,20 +150,33 @@ func (p githubProvider) PublishReview(ctx context.Context, req plugin.PublishRev
 	}}, nil
 }
 
-func (p githubProvider) currentPullRequest(ctx context.Context) (ghPR, error) {
+func (p githubProvider) currentPullRequest(ctx context.Context, reviewCtx plugin.ReviewContext) (ghPR, error) {
+	if remote, ok := firstGitHubRemote(reviewCtx.Repository.Remotes); ok {
+		if client, err := p.graphQLClient(); err == nil {
+			candidates, err := fetchGitHubPRCandidates(ctx, client, remote)
+			if err != nil {
+				return ghPR{}, err
+			}
+			match, err := matchGitHubPR(reviewCtx, candidates)
+			if err != nil {
+				return ghPR{}, err
+			}
+			return ghPR{Number: match.Number, URL: match.URL}, nil
+		}
+	}
 	if p.execGH == nil {
 		p.execGH = execGH
 	}
-	stdout, stderr, err := p.execGH(ctx, "pr", "view", "--json", "number,url")
+	stdout, stderr, err := p.execGH(ctx, ghPRViewArgs(reviewCtx)...)
 	if err != nil {
 		message := strings.TrimSpace(stderr)
 		if message == "" {
 			message = err.Error()
 		}
 		if strings.Contains(strings.ToLower(message), "no pull request") || strings.Contains(strings.ToLower(message), "no pull requests") {
-			return ghPR{}, plugin.NewErrorf(plugin.ErrorNotApplicable, "no pull request found for current branch: %s", message)
+			return ghPR{}, plugin.NewErrorf(plugin.ErrorNotApplicable, "no pull request found for review context: %s", message)
 		}
-		return ghPR{}, plugin.NewErrorf(plugin.ErrorAuthRequired, "GitHub CLI PR lookup failed; ensure gh is installed and authenticated: %s", message)
+		return ghPR{}, classifyGitHubRemoteMessage("GitHub CLI PR lookup failed", message)
 	}
 	var pr ghPR
 	if err := json.Unmarshal([]byte(stdout), &pr); err != nil {
@@ -140,6 +186,44 @@ func (p githubProvider) currentPullRequest(ctx context.Context) (ghPR, error) {
 		return ghPR{}, plugin.NewError(plugin.ErrorNotApplicable, "no pull request found for current branch")
 	}
 	return pr, nil
+}
+
+func ghPRViewArgs(reviewCtx plugin.ReviewContext) []string {
+	args := []string{"pr", "view", "--json", "number,url"}
+	branch := publishPRLookupBranch(reviewCtx)
+	if branch != "" {
+		args = append(args, branch)
+	}
+	return args
+}
+
+func publishPRLookupBranch(reviewCtx plugin.ReviewContext) string {
+	headRef := strings.TrimSpace(reviewCtx.Target.HeadRef)
+	if headRef == "" && strings.EqualFold(reviewCtx.Target.Mode, "branch") {
+		headRef = strings.TrimSpace(reviewCtx.Repository.CurrentBranch)
+	}
+	if headRef == "" {
+		return ""
+	}
+	return normalizeRef(headRef)
+}
+
+func classifyGitHubRemoteError(action string, err error) error {
+	if pe := plugin.AsError(err); pe != nil {
+		return pe
+	}
+	return classifyGitHubRemoteMessage(action, err.Error())
+}
+
+func classifyGitHubRemoteMessage(action, message string) error {
+	lower := strings.ToLower(message)
+	code := plugin.ErrorNetwork
+	if strings.Contains(lower, "rate limit") || strings.Contains(lower, "secondary rate") || strings.Contains(lower, "api rate limit exceeded") {
+		code = plugin.ErrorRemoteRateLimited
+	} else if strings.Contains(lower, "auth") || strings.Contains(lower, "authentication") || strings.Contains(lower, "credential") || strings.Contains(lower, "401") || strings.Contains(lower, "403") {
+		code = plugin.ErrorAuthRequired
+	}
+	return plugin.NewErrorf(code, "%s: %s", action, message)
 }
 
 func buildReviewArgs(prNumber int, payload plugin.ReviewPublishPayload) ([]string, error) {
@@ -235,9 +319,4 @@ func firstNonEmpty(values ...string) string {
 func execGH(ctx context.Context, args ...string) (string, string, error) {
 	stdout, stderr, err := gh.ExecContext(ctx, args...)
 	return stdout.String(), stderr.String(), err
-}
-
-func isGitHubRemote(url string) bool {
-	url = strings.ToLower(url)
-	return strings.Contains(url, "github.com:") || strings.Contains(url, "github.com/")
 }
