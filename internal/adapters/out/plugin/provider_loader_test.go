@@ -12,6 +12,77 @@ import (
 	"ero/internal/ports/mocks"
 )
 
+func TestReviewProviderLoaderListsReviewProviderDescriptorsWithoutStartingClients(t *testing.T) {
+	t.Parallel()
+
+	clientFactoryCalls := 0
+	multiDescriptor := ports.PluginDescriptor{
+		Name:    "multi",
+		Version: "0.1.0",
+		Source:  "git:example.com/owner/multi@v0.1.0",
+		Path:    "plugins/multi",
+		Contributions: []ports.PluginContribution{
+			{Type: "review_provider", ID: "github", Label: "GitHub"},
+			{Type: "theme", ID: "dark", Label: "Dark"},
+			{Type: "review_provider", ID: "gitlab", Label: "GitLab"},
+		},
+	}
+	registry := mocks.NewMockPluginRegistry(t)
+	registry.EXPECT().InstalledPlugins(context.Background()).Return([]ports.PluginDescriptor{multiDescriptor, {
+		Name:    "other",
+		Version: "2.0.0",
+		Source:  "git:example.com/owner/other@v2.0.0",
+		Path:    "plugins/other",
+		Contributions: []ports.PluginContribution{
+			{Type: "workflow", ID: "triage", Label: "Triage"},
+		},
+	}}, nil)
+
+	loader := NewReviewProviderLoader(registry)
+	loader.clientFactory = func(context.Context, ports.ReviewProviderDescriptor) (ports.ReviewProviderClient, error) {
+		clientFactoryCalls++
+		return nil, nil
+	}
+
+	descriptors, err := loader.ListReviewProviderDescriptors(context.Background())
+	require.NoError(t, err)
+	require.Equal(t, []ports.ReviewProviderDescriptor{{
+		Key:            stableReviewProviderKey(multiDescriptor, multiDescriptor.Contributions[0]),
+		PluginName:     "multi",
+		PluginVersion:  "0.1.0",
+		PluginSource:   "git:example.com/owner/multi@v0.1.0",
+		PluginPath:     "plugins/multi",
+		ContributionID: "github",
+		Label:          "GitHub",
+		Type:           "review_provider",
+	}, {
+		Key:            stableReviewProviderKey(multiDescriptor, multiDescriptor.Contributions[2]),
+		PluginName:     "multi",
+		PluginVersion:  "0.1.0",
+		PluginSource:   "git:example.com/owner/multi@v0.1.0",
+		PluginPath:     "plugins/multi",
+		ContributionID: "gitlab",
+		Label:          "GitLab",
+		Type:           "review_provider",
+	}}, descriptors)
+	require.Zero(t, clientFactoryCalls)
+}
+
+func TestStableReviewProviderKeyUsesCanonicalInstalledPluginIdentity(t *testing.T) {
+	t.Parallel()
+
+	first := ports.PluginDescriptor{Name: "same", Version: "1.0.0", Source: "git:example.com/owner/one@v1"}
+	second := ports.PluginDescriptor{Name: "same", Version: "1.0.0", Source: "git:example.com/owner/two@v1"}
+	contribution := ports.PluginContribution{Type: "review_provider", ID: "github", Label: "GitHub"}
+
+	firstKey := stableReviewProviderKey(first, contribution)
+	secondKey := stableReviewProviderKey(second, contribution)
+
+	require.NotEqual(t, firstKey, secondKey)
+	require.NotContains(t, firstKey, "same@1.0.0")
+	require.Contains(t, firstKey, "#review_provider:github")
+}
+
 func TestReviewProviderLoaderBuildsMissingRuntimeBeforeStartingProvider(t *testing.T) {
 	t.Parallel()
 

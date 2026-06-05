@@ -246,15 +246,16 @@ func TestRunLoadsReviewAndRunsTUIWithConfig(t *testing.T) {
 	}
 }
 
-func TestBuildReviewProvidersDelegatesToLoader(t *testing.T) {
+func TestBuildReviewProvidersUsesDescriptorsAndFactory(t *testing.T) {
 	t.Parallel()
 
 	ctx := context.Background()
+	descriptor := ports.ReviewProviderDescriptor{Key: "plugin@1.0.0/github", ContributionID: "github"}
 	provider := mocks.NewMockReviewProviderClient(t)
-	loader := mocks.NewMockReviewProviderLoader(t)
-	loader.EXPECT().LoadReviewProviders(ctx).Return([]ports.ReviewProviderClient{provider}, nil)
+	catalog := &fakeReviewProviderCatalog{descriptors: []ports.ReviewProviderDescriptor{descriptor}}
+	factory := &fakeReviewProviderClientFactory{clients: map[string]ports.ReviewProviderClient{descriptor.Key: provider}}
 
-	providers, err := buildReviewProviders(ctx, loader)
+	providers, err := buildReviewProviders(ctx, catalog, factory)
 	require.NoError(t, err)
 	require.Equal(t, []ports.ReviewProviderClient{provider}, providers)
 }
@@ -337,6 +338,27 @@ func (f *fakeGitMetadataReader) ResolveRevision(_ string, revision string) (stri
 	return revision + "sha", f.err
 }
 func (f *fakeGitMetadataReader) DefaultBranch(string) (string, error) { return f.defaultBranch, f.err }
+
+type fakeReviewProviderCatalog struct {
+	descriptors []ports.ReviewProviderDescriptor
+	err         error
+}
+
+func (f *fakeReviewProviderCatalog) ListReviewProviderDescriptors(context.Context) ([]ports.ReviewProviderDescriptor, error) {
+	return f.descriptors, f.err
+}
+
+type fakeReviewProviderClientFactory struct {
+	clients map[string]ports.ReviewProviderClient
+	err     error
+}
+
+func (f *fakeReviewProviderClientFactory) CreateReviewProviderClient(_ context.Context, descriptor ports.ReviewProviderDescriptor) (ports.ReviewProviderClient, error) {
+	if f.err != nil {
+		return nil, f.err
+	}
+	return f.clients[descriptor.Key], nil
+}
 
 type fakeStartupPrompt struct {
 	mode core.DiffMode

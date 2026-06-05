@@ -48,6 +48,8 @@ label = "Example"
 
 Required fields are `name`, `version`, `manifest_version = "1"`, `protocol = "ero.plugin.v1"`, `runtime.command`, and at least one contribution with `type` and `id`. Contribution type strings are lower snake_case; the currently implemented public contribution type is `review_provider`.
 
+Ero discovers available review providers from installed plugin manifests before starting plugin subprocesses. Each discovered provider has a host-owned stable key derived from a canonical installed-plugin identity plus the contribution `id`; runtime provider IDs returned by `initialize` remain provider-owned metadata and are not used as the host selection key.
+
 `runtime.command` is executed with the plugin root as the working directory. Keep it stable for installed users; use the optional `build.command` for local development or release packaging.
 
 ## Protocol

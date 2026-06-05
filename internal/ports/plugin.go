@@ -52,8 +52,32 @@ type PluginRemoveResult struct {
 	RemovedRepo bool   `json:"removed_repo"`
 }
 
+// ReviewProviderDescriptor describes a review_provider contribution without starting its runtime.
+type ReviewProviderDescriptor struct {
+	Key            string
+	PluginName     string
+	PluginVersion  string
+	PluginSource   string
+	PluginPath     string
+	ContributionID string
+	Label          string
+	Type           string
+}
+
+// ReviewProviderCatalog discovers review_provider contribution descriptors.
+type ReviewProviderCatalog interface {
+	ListReviewProviderDescriptors(ctx context.Context) ([]ReviewProviderDescriptor, error)
+}
+
+// ReviewProviderClientFactory creates live provider clients for selected descriptors.
+type ReviewProviderClientFactory interface {
+	CreateReviewProviderClient(ctx context.Context, descriptor ReviewProviderDescriptor) (ReviewProviderClient, error)
+}
+
 // ReviewProviderLoader builds provider clients from installed plugin sources.
 type ReviewProviderLoader interface {
+	ReviewProviderCatalog
+	ReviewProviderClientFactory
 	LoadReviewProviders(ctx context.Context) ([]ReviewProviderClient, error)
 }
 

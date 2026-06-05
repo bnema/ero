@@ -38,6 +38,136 @@ func (_m *MockReviewProviderLoader) EXPECT() *MockReviewProviderLoader_Expecter 
 	return &MockReviewProviderLoader_Expecter{mock: &_m.Mock}
 }
 
+// CreateReviewProviderClient provides a mock function for the type MockReviewProviderLoader
+func (_mock *MockReviewProviderLoader) CreateReviewProviderClient(ctx context.Context, descriptor ports.ReviewProviderDescriptor) (ports.ReviewProviderClient, error) {
+	ret := _mock.Called(ctx, descriptor)
+
+	if len(ret) == 0 {
+		panic("no return value specified for CreateReviewProviderClient")
+	}
+
+	var r0 ports.ReviewProviderClient
+	var r1 error
+	if returnFunc, ok := ret.Get(0).(func(context.Context, ports.ReviewProviderDescriptor) (ports.ReviewProviderClient, error)); ok {
+		return returnFunc(ctx, descriptor)
+	}
+	if returnFunc, ok := ret.Get(0).(func(context.Context, ports.ReviewProviderDescriptor) ports.ReviewProviderClient); ok {
+		r0 = returnFunc(ctx, descriptor)
+	} else {
+		if ret.Get(0) != nil {
+			r0 = ret.Get(0).(ports.ReviewProviderClient)
+		}
+	}
+	if returnFunc, ok := ret.Get(1).(func(context.Context, ports.ReviewProviderDescriptor) error); ok {
+		r1 = returnFunc(ctx, descriptor)
+	} else {
+		r1 = ret.Error(1)
+	}
+	return r0, r1
+}
+
+// MockReviewProviderLoader_CreateReviewProviderClient_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'CreateReviewProviderClient'
+type MockReviewProviderLoader_CreateReviewProviderClient_Call struct {
+	*mock.Call
+}
+
+// CreateReviewProviderClient is a helper method to define mock.On call
+//   - ctx context.Context
+//   - descriptor ports.ReviewProviderDescriptor
+func (_e *MockReviewProviderLoader_Expecter) CreateReviewProviderClient(ctx interface{}, descriptor interface{}) *MockReviewProviderLoader_CreateReviewProviderClient_Call {
+	return &MockReviewProviderLoader_CreateReviewProviderClient_Call{Call: _e.mock.On("CreateReviewProviderClient", ctx, descriptor)}
+}
+
+func (_c *MockReviewProviderLoader_CreateReviewProviderClient_Call) Run(run func(ctx context.Context, descriptor ports.ReviewProviderDescriptor)) *MockReviewProviderLoader_CreateReviewProviderClient_Call {
+	_c.Call.Run(func(args mock.Arguments) {
+		var arg0 context.Context
+		if args[0] != nil {
+			arg0 = args[0].(context.Context)
+		}
+		var arg1 ports.ReviewProviderDescriptor
+		if args[1] != nil {
+			arg1 = args[1].(ports.ReviewProviderDescriptor)
+		}
+		run(
+			arg0,
+			arg1,
+		)
+	})
+	return _c
+}
+
+func (_c *MockReviewProviderLoader_CreateReviewProviderClient_Call) Return(reviewProviderClient ports.ReviewProviderClient, err error) *MockReviewProviderLoader_CreateReviewProviderClient_Call {
+	_c.Call.Return(reviewProviderClient, err)
+	return _c
+}
+
+func (_c *MockReviewProviderLoader_CreateReviewProviderClient_Call) RunAndReturn(run func(ctx context.Context, descriptor ports.ReviewProviderDescriptor) (ports.ReviewProviderClient, error)) *MockReviewProviderLoader_CreateReviewProviderClient_Call {
+	_c.Call.Return(run)
+	return _c
+}
+
+// ListReviewProviderDescriptors provides a mock function for the type MockReviewProviderLoader
+func (_mock *MockReviewProviderLoader) ListReviewProviderDescriptors(ctx context.Context) ([]ports.ReviewProviderDescriptor, error) {
+	ret := _mock.Called(ctx)
+
+	if len(ret) == 0 {
+		panic("no return value specified for ListReviewProviderDescriptors")
+	}
+
+	var r0 []ports.ReviewProviderDescriptor
+	var r1 error
+	if returnFunc, ok := ret.Get(0).(func(context.Context) ([]ports.ReviewProviderDescriptor, error)); ok {
+		return returnFunc(ctx)
+	}
+	if returnFunc, ok := ret.Get(0).(func(context.Context) []ports.ReviewProviderDescriptor); ok {
+		r0 = returnFunc(ctx)
+	} else {
+		if ret.Get(0) != nil {
+			r0 = ret.Get(0).([]ports.ReviewProviderDescriptor)
+		}
+	}
+	if returnFunc, ok := ret.Get(1).(func(context.Context) error); ok {
+		r1 = returnFunc(ctx)
+	} else {
+		r1 = ret.Error(1)
+	}
+	return r0, r1
+}
+
+// MockReviewProviderLoader_ListReviewProviderDescriptors_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'ListReviewProviderDescriptors'
+type MockReviewProviderLoader_ListReviewProviderDescriptors_Call struct {
+	*mock.Call
+}
+
+// ListReviewProviderDescriptors is a helper method to define mock.On call
+//   - ctx context.Context
+func (_e *MockReviewProviderLoader_Expecter) ListReviewProviderDescriptors(ctx interface{}) *MockReviewProviderLoader_ListReviewProviderDescriptors_Call {
+	return &MockReviewProviderLoader_ListReviewProviderDescriptors_Call{Call: _e.mock.On("ListReviewProviderDescriptors", ctx)}
+}
+
+func (_c *MockReviewProviderLoader_ListReviewProviderDescriptors_Call) Run(run func(ctx context.Context)) *MockReviewProviderLoader_ListReviewProviderDescriptors_Call {
+	_c.Call.Run(func(args mock.Arguments) {
+		var arg0 context.Context
+		if args[0] != nil {
+			arg0 = args[0].(context.Context)
+		}
+		run(
+			arg0,
+		)
+	})
+	return _c
+}
+
+func (_c *MockReviewProviderLoader_ListReviewProviderDescriptors_Call) Return(reviewProviderDescriptors []ports.ReviewProviderDescriptor, err error) *MockReviewProviderLoader_ListReviewProviderDescriptors_Call {
+	_c.Call.Return(reviewProviderDescriptors, err)
+	return _c
+}
+
+func (_c *MockReviewProviderLoader_ListReviewProviderDescriptors_Call) RunAndReturn(run func(ctx context.Context) ([]ports.ReviewProviderDescriptor, error)) *MockReviewProviderLoader_ListReviewProviderDescriptors_Call {
+	_c.Call.Return(run)
+	return _c
+}
+
 // LoadReviewProviders provides a mock function for the type MockReviewProviderLoader
 func (_mock *MockReviewProviderLoader) LoadReviewProviders(ctx context.Context) ([]ports.ReviewProviderClient, error) {
 	ret := _mock.Called(ctx)
