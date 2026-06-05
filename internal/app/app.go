@@ -114,7 +114,8 @@ func newAppWithClipboard(cfg *viper.Viper, loader reviewLoader, runner tuiRunner
 			metadata = reader
 		}
 		reviewContext := buildReviewContext(initialRequest, files, metadata, version)
-		err = runner.Run(tui.NewModelWithActiveProviderContext(ctx, files, terminal.NewCapabilities(), loader, initialRequest, clipboardWriter, reviewContext, activeProvider, nil))
+		var compatibilityProviders []ports.ReviewProviderClient
+		err = runner.Run(tui.NewModelWithActiveProviderContext(ctx, files, terminal.NewCapabilities(), loader, initialRequest, clipboardWriter, reviewContext, activeProvider, compatibilityProviders))
 		if err != nil {
 			log.Error().Err(err).Msg("tui exited with error")
 			return err

@@ -67,6 +67,7 @@ func mapGitHubReviews(reviews []ghReview) []plugin.ProviderReviewSummary {
 }
 
 func mapGitHubThread(t ghReviewThread) plugin.RemoteReviewThread {
+	// Mark clearly stale or unanchored threads as unmapped before line conversion.
 	thread := plugin.RemoteReviewThread{ProviderID: providerID, ExternalID: t.ID, FilePath: t.Path, ExternalURL: firstThreadURL(t), Unmapped: t.IsOutdated || t.Path == "" || t.Line <= 0}
 	thread.Range = plugin.ReviewLineRange{End: lineRef(t.Line, t.Side)}
 	if t.StartLine > 0 {
@@ -74,6 +75,7 @@ func mapGitHubThread(t ghReviewThread) plugin.RemoteReviewThread {
 	} else {
 		thread.Range.Start = thread.Range.End
 	}
+	// Also mark unmapped when GitHub supplied a line but no supported side mapping resolved.
 	if thread.Range.End.NewLineNumber == 0 && thread.Range.End.OldLineNumber == 0 {
 		thread.Unmapped = true
 	}

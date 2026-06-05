@@ -129,7 +129,9 @@ func (m Model) renderProviderPickerOverlay(content string) string {
 }
 
 func (m Model) renderProviderPicker(width, height int) string {
+	// Keep an eight-column outer margin, a readable 36-column minimum, and a 76-column maximum.
 	paneWidth := min(max(width-8, 36), 76)
+	// Account for pane padding/chrome while preserving at least one content column.
 	contentWidth := max(paneWidth-6, 1)
 	lines := []string{theme.HelpPaneTitleStyle.Render("Review providers"), ""}
 	rows := m.providerPicker.rows

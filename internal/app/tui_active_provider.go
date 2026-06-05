@@ -21,11 +21,17 @@ func (c *tuiActiveProviderController) Catalog(ctx context.Context) ([]ports.Revi
 }
 
 func (c *tuiActiveProviderController) Start(ctx context.Context, review core.ReviewContext) (tui.ActiveProviderState, error) {
+	if c == nil || c.service == nil {
+		return tui.ActiveProviderState{}, core.NewProviderError(core.ProviderErrorNotApplicable, "no active provider", nil)
+	}
 	state, err := c.service.Start(ctx, review)
 	return c.toTUIState(state), err
 }
 
 func (c *tuiActiveProviderController) Refresh(ctx context.Context, review core.ReviewContext, manual bool) (tui.ActiveProviderState, error) {
+	if c == nil || c.service == nil {
+		return tui.ActiveProviderState{}, core.NewProviderError(core.ProviderErrorNotApplicable, "no active provider", nil)
+	}
 	state, err := c.service.Refresh(ctx, review, manual)
 	return c.toTUIState(state), err
 }
@@ -53,6 +59,9 @@ func (c *tuiActiveProviderController) CompleteTimer(ctx context.Context, review 
 }
 
 func (c *tuiActiveProviderController) Switch(ctx context.Context, review core.ReviewContext, stableKey string) (tui.ActiveProviderState, error) {
+	if c == nil || c.service == nil {
+		return tui.ActiveProviderState{}, core.NewProviderError(core.ProviderErrorNotApplicable, "no active provider", nil)
+	}
 	state, err := c.service.Switch(ctx, review, stableKey)
 	return c.toTUIState(state), err
 }

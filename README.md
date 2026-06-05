@@ -13,6 +13,8 @@ A terminal UI for reviewing Git diffs file by file.
 - expandable unchanged context around diff hunks
 - syntax-aware diff rendering
 - selection copy support
+- active review-provider sync with inline remote review threads
+- GitHub PR overview sheet with Markdown-rendered PR body, issue comments, and review summaries
 
 ## Install
 
@@ -44,7 +46,7 @@ ero --context-lines 5
 
 ## Plugins
 
-Ero supports a general local subprocess plugin system, managed with `ero plugin install`, `ero plugin list`, `ero plugin update`, and `ero plugin remove`. The first shipped contribution type is `review_provider`, used by the maintained GitHub and pi-coding-agent plugins. The GitHub plugin requires the GitHub CLI (`gh`) installed and authenticated with `gh auth login`. See [docs/plugins.md](docs/plugins.md) for authoring details.
+Ero supports a general local subprocess plugin system, managed with `ero plugin install`, `ero plugin list`, `ero plugin update`, and `ero plugin remove`. The first shipped contribution type is `review_provider`, used by the maintained GitHub and pi-coding-agent plugins. Ero discovers all provider contributions but activates one review provider at a time, with provider switching, manual refresh, cache-first sync, and provider sync status in the TUI. The GitHub plugin uses GitHub CLI-compatible authentication through `go-gh` and requires `gh auth login`. See [docs/plugins.md](docs/plugins.md) for authoring details.
 
 ## Development
 

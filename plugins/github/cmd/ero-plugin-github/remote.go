@@ -50,11 +50,6 @@ func cleanGitHubRepo(owner, repo string) (githubRemote, bool) {
 	return githubRemote{Owner: owner, Name: repo}, true
 }
 
-func isGitHubRemote(raw string) bool {
-	_, ok := parseGitHubRemote(raw)
-	return ok
-}
-
 func firstGitHubRemote(remotes []plugin.GitRemote) (githubRemote, bool) {
 	for _, remote := range remotes {
 		if parsed, ok := parseGitHubRemote(remote.URL); ok {

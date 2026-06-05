@@ -5,7 +5,6 @@ import (
 	"strings"
 	"time"
 
-	tea "charm.land/bubbletea/v2"
 	"charm.land/lipgloss/v2"
 
 	"ero/internal/core"
@@ -250,8 +249,4 @@ func padRight(s string, width int) string {
 		return s
 	}
 	return s + strings.Repeat(" ", width-lipgloss.Width(s))
-}
-
-func togglePRSheetCmd() tea.Cmd {
-	return func() tea.Msg { return prSheetToggledMsg{} }
 }

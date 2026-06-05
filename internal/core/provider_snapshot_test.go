@@ -23,20 +23,24 @@ func TestReviewContextKeyIncludesIdentityInputs(t *testing.T) {
 	baseKey := NewReviewContextKey("provider-a", base)
 
 	cases := map[string]func(*ReviewContext){
-		"provider": nil,
-		"remote": func(c *ReviewContext) { c.Repository.Remotes[0].URL = "git@github.com:owner/other.git" },
-		"mode": func(c *ReviewContext) { c.Target.Mode = DiffModeRange },
-		"base ref": func(c *ReviewContext) { c.Target.BaseRef = "main" },
-		"head ref": func(c *ReviewContext) { c.Target.HeadRef = "feature-2" },
-		"base sha": func(c *ReviewContext) { c.Target.BaseSHA = "base2" },
-		"head sha": func(c *ReviewContext) { c.Target.HeadSHA = "head2" },
+		"provider":   nil,
+		"remote":     func(c *ReviewContext) { c.Repository.Remotes[0].URL = "git@github.com:owner/other.git" },
+		"mode":       func(c *ReviewContext) { c.Target.Mode = DiffModeRange },
+		"base ref":   func(c *ReviewContext) { c.Target.BaseRef = "main" },
+		"head ref":   func(c *ReviewContext) { c.Target.HeadRef = "feature-2" },
+		"base sha":   func(c *ReviewContext) { c.Target.BaseSHA = "base2" },
+		"head sha":   func(c *ReviewContext) { c.Target.HeadSHA = "head2" },
 		"merge base": func(c *ReviewContext) { c.Target.MergeBaseSHA = "merge2" },
 	}
 
 	for name, mutate := range cases {
 		ctx := base
 		provider := "provider-a"
-		if mutate == nil { provider = "provider-b" } else { mutate(&ctx) }
+		if mutate == nil {
+			provider = "provider-b"
+		} else {
+			mutate(&ctx)
+		}
 		if got := NewReviewContextKey(provider, ctx); got == baseKey {
 			t.Fatalf("%s did not change key", name)
 		}
@@ -63,7 +67,7 @@ func TestRepositoryIdentityPrefersRemotesAndFallsBackToPath(t *testing.T) {
 func sampleProviderReviewContext() ReviewContext {
 	return ReviewContext{
 		Repository: RepositoryMetadata{RepoPath: "/repo", WorktreeRoot: "/repo", Remotes: []GitRemote{{Name: "origin", URL: "git@github.com:owner/repo.git"}}},
-		Target: ReviewTargetMetadata{Mode: DiffModeBranch, BaseRef: "origin/main", HeadRef: "feature", BaseSHA: "base1", HeadSHA: "head1", MergeBaseSHA: "merge1"},
-		Session: ReviewSessionMetadata{LocalReviewID: "local", IdempotencyKey: "idem", CreatedAt: time.Unix(1, 0)},
+		Target:     ReviewTargetMetadata{Mode: DiffModeBranch, BaseRef: "origin/main", HeadRef: "feature", BaseSHA: "base1", HeadSHA: "head1", MergeBaseSHA: "merge1"},
+		Session:    ReviewSessionMetadata{LocalReviewID: "local", IdempotencyKey: "idem", CreatedAt: time.Unix(1, 0)},
 	}
 }

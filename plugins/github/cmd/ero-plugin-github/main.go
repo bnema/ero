@@ -105,7 +105,8 @@ func (p githubProvider) LoadRemoteSnapshot(ctx context.Context, req plugin.LoadR
 }
 
 func (p githubProvider) LoadRemoteThreads(ctx context.Context, req plugin.LoadRemoteThreadsRequest) (plugin.LoadRemoteThreadsResult, error) {
-	snapshot, err := p.LoadRemoteSnapshot(ctx, plugin.LoadRemoteSnapshotRequest{Context: req.Context})
+	snapshotReq := plugin.LoadRemoteSnapshotRequest(req)
+	snapshot, err := p.LoadRemoteSnapshot(ctx, snapshotReq)
 	if err != nil {
 		return plugin.LoadRemoteThreadsResult{}, err
 	}

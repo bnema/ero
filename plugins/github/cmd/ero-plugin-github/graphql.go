@@ -125,8 +125,67 @@ type ghReviewThreadComment struct {
 	CreatedAt time.Time `json:"createdAt"`
 }
 
-const githubPRListQuery = `query EroPRList($owner:String!, $name:String!, $after:String) { repository(owner:$owner, name:$name) { pullRequests(first:50, after:$after, states:[OPEN]) { nodes { number url title state baseRefName headRefName headRefOid headRepositoryOwner { login } headRepository { name } } pageInfo { hasNextPage endCursor } } } } }`
-const githubPRSnapshotQuery = `query EroPRSnapshot($owner:String!, $name:String!, $number:Int!, $commentsAfter:String, $reviewsAfter:String, $threadsAfter:String) { repository(owner:$owner, name:$name) { pullRequest(number:$number) { number url title state body updatedAt author { login } baseRefName headRefName headRefOid headRepositoryOwner { login } headRepository { name } comments(first:100, after:$commentsAfter) { nodes { id url body createdAt updatedAt author { login } } pageInfo { hasNextPage endCursor } } reviews(first:100, after:$reviewsAfter) { nodes { id url state body submittedAt author { login } } pageInfo { hasNextPage endCursor } } reviewThreads(first:100, after:$threadsAfter) { nodes { id path line side startLine startSide isOutdated comments(first:100) { nodes { id url body createdAt author { login } } pageInfo { hasNextPage endCursor } } } pageInfo { hasNextPage endCursor } } } } }`
+const githubPRListQuery = `query EroPRList($owner:String!, $name:String!, $after:String) {
+  repository(owner:$owner, name:$name) {
+    pullRequests(first:50, after:$after, states:[OPEN]) {
+      nodes {
+        number
+        url
+        title
+        state
+        baseRefName
+        headRefName
+        headRefOid
+        headRepositoryOwner { login }
+        headRepository { name }
+      }
+      pageInfo { hasNextPage endCursor }
+    }
+  }
+}`
+
+const githubPRSnapshotQuery = `query EroPRSnapshot($owner:String!, $name:String!, $number:Int!, $commentsAfter:String, $reviewsAfter:String, $threadsAfter:String) {
+  repository(owner:$owner, name:$name) {
+    pullRequest(number:$number) {
+      number
+      url
+      title
+      state
+      body
+      updatedAt
+      author { login }
+      baseRefName
+      headRefName
+      headRefOid
+      headRepositoryOwner { login }
+      headRepository { name }
+      comments(first:100, after:$commentsAfter) {
+        nodes { id url body createdAt updatedAt author { login } }
+        pageInfo { hasNextPage endCursor }
+      }
+      reviews(first:100, after:$reviewsAfter) {
+        nodes { id url state body submittedAt author { login } }
+        pageInfo { hasNextPage endCursor }
+      }
+      reviewThreads(first:100, after:$threadsAfter) {
+        nodes {
+          id
+          path
+          line
+          side
+          startLine
+          startSide
+          isOutdated
+          comments(first:100) {
+            nodes { id url body createdAt author { login } }
+            pageInfo { hasNextPage endCursor }
+          }
+        }
+        pageInfo { hasNextPage endCursor }
+      }
+    }
+  }
+}`
 
 func (p githubProvider) graphQLClient() (graphQLDoer, error) {
 	if p.newGraphQLClient != nil {
