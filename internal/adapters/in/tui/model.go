@@ -136,6 +136,7 @@ type Model struct {
 	providerPicker       providerPickerState
 	publish              publishState
 	prSheet              prSheetState
+	markdownRenderer     *MarkdownRenderer
 	ctx                  context.Context
 	reviewLineCache      *render.ReviewLineCache
 	cachedEditorWidth    int
@@ -193,6 +194,7 @@ func NewModelWithActiveProviderContext(ctx context.Context, files []core.ReviewF
 		providerInfos:        nil,
 		providerInfoByClient: map[ports.ReviewProviderClient]core.ReviewProviderInfo{},
 		remoteThreads:        nil,
+		markdownRenderer:     NewMarkdownRenderer(),
 		ctx:                  ctx,
 		reviewLineCache:      render.NewReviewLineCache(),
 	}

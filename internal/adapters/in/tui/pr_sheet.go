@@ -3,9 +3,12 @@ package tui
 import (
 	"strconv"
 	"strings"
+	"time"
 
 	tea "charm.land/bubbletea/v2"
 	"charm.land/lipgloss/v2"
+
+	"ero/internal/core"
 )
 
 type prSheetToggledMsg struct{}
@@ -15,7 +18,7 @@ type prSheetScrolledMsg struct {
 }
 
 type prSheetState struct {
-	open   bool
+	open    bool
 	yOffset int
 }
 
@@ -68,20 +71,151 @@ func (m Model) prSheetLines() []string {
 	if m.activeRuntimeInfo.ID != "" || m.activeRuntimeInfo.Label != "" || m.activeRuntimeInfo.Name != "" {
 		provider = providerDisplayLabel(m.activeRuntimeInfo)
 	}
-	return []string{
+
+	lines := []string{
 		"Pull request",
 		"",
 		"Provider: " + provider,
-		"",
-		"Overview placeholder",
-		"Phase 4 will render PR markdown and metadata here.",
-		"",
-		"Remote threads: " + pluralCount(len(m.remoteThreads), "thread"),
 	}
+	if m.providerSyncState.Status != "" {
+		lines = append(lines, "Sync: "+string(m.providerSyncState.Status))
+	}
+	lines = append(lines, "Remote threads: "+pluralCount(len(m.remoteThreads), "thread"), "")
+
+	if m.providerOverview == nil {
+		return append(lines,
+			"No provider overview loaded.",
+			"Open an active provider that supports PR snapshots to show PR metadata, body, comments, and reviews here.",
+		)
+	}
+	return append(lines, m.providerOverviewLines(m.providerOverview)...)
+}
+
+func (m Model) providerOverviewLines(overview *core.ProviderOverview) []string {
+	contentWidth := max(prSheetWidth(m.width)-2, 1)
+	lines := []string{}
+	if strings.TrimSpace(overview.Title) != "" {
+		lines = append(lines, overview.Title)
+	} else {
+		lines = append(lines, "Untitled pull request")
+	}
+	metadata := providerOverviewMetadata(overview)
+	if len(metadata) > 0 {
+		lines = append(lines, metadata...)
+	}
+	if strings.TrimSpace(overview.ExternalURL) != "" {
+		lines = append(lines, overview.ExternalURL)
+	}
+	lines = append(lines, "")
+
+	if strings.TrimSpace(overview.Body) != "" {
+		lines = append(lines, "Body", "")
+		lines = append(lines, renderPRSheetMarkdown(m.markdownRenderer, overview.Body, contentWidth)...)
+		lines = append(lines, "")
+	}
+
+	lines = append(lines, "Issue comments: "+strconv.Itoa(len(overview.Comments)))
+	for _, comment := range overview.Comments {
+		lines = append(lines, "", commentHeader(comment.Author, comment.CreatedAt))
+		lines = append(lines, renderPRSheetMarkdown(m.markdownRenderer, comment.Body, contentWidth)...)
+	}
+
+	lines = append(lines, "", "Review summaries: "+strconv.Itoa(len(overview.Reviews)))
+	for _, review := range overview.Reviews {
+		lines = append(lines, "", reviewSummaryHeader(review))
+		if strings.TrimSpace(review.Body) != "" {
+			lines = append(lines, renderPRSheetMarkdown(m.markdownRenderer, review.Body, contentWidth)...)
+		}
+	}
+	return trimTrailingBlankLines(lines)
 }
 
 func (m Model) prSheetLineCount() int {
 	return len(m.prSheetLines())
+}
+
+func renderPRSheetMarkdown(renderer *MarkdownRenderer, markdown string, width int) []string {
+	rendered := renderer.Render(markdown, width, MarkdownThemeDark)
+	plain := safeMarkdownFallback(rendered)
+	if strings.TrimSpace(plain) == "" {
+		return []string{"(empty)"}
+	}
+	return strings.Split(plain, "\n")
+}
+
+func providerOverviewMetadata(overview *core.ProviderOverview) []string {
+	if overview == nil {
+		return nil
+	}
+	parts := make([]string, 0, 4)
+	if overview.Number > 0 {
+		parts = append(parts, "#"+strconv.Itoa(overview.Number))
+	}
+	if strings.TrimSpace(overview.State) != "" {
+		parts = append(parts, strings.TrimSpace(overview.State))
+	}
+	if strings.TrimSpace(overview.Author) != "" {
+		parts = append(parts, "by "+strings.TrimSpace(overview.Author))
+	}
+	if strings.TrimSpace(overview.BaseRef) != "" || strings.TrimSpace(overview.HeadRef) != "" {
+		parts = append(parts, strings.TrimSpace(overview.BaseRef)+" ← "+strings.TrimSpace(overview.HeadRef))
+	}
+	lines := []string{}
+	if len(parts) > 0 {
+		lines = append(lines, strings.Join(parts, " · "))
+	}
+	if overview.UpdatedAt != nil && !overview.UpdatedAt.IsZero() {
+		lines = append(lines, "Updated "+overview.UpdatedAt.Local().Format("2006-01-02 15:04"))
+	}
+	return lines
+}
+
+func commentHeader(author string, createdAt time.Time) string {
+	parts := []string{"• Comment"}
+	if strings.TrimSpace(author) != "" {
+		parts = append(parts, "by "+strings.TrimSpace(author))
+	}
+	if !createdAt.IsZero() {
+		parts = append(parts, createdAt.Local().Format("2006-01-02 15:04"))
+	}
+	return strings.Join(parts, " ")
+}
+
+func reviewSummaryHeader(review core.ProviderReviewSummary) string {
+	marker := reviewStateMarker(review.State)
+	parts := []string{marker}
+	if strings.TrimSpace(review.State) != "" {
+		parts = append(parts, strings.ToUpper(strings.TrimSpace(review.State)))
+	}
+	if strings.TrimSpace(review.Author) != "" {
+		parts = append(parts, "by "+strings.TrimSpace(review.Author))
+	}
+	if !review.SubmittedAt.IsZero() {
+		parts = append(parts, review.SubmittedAt.Local().Format("2006-01-02 15:04"))
+	}
+	return strings.Join(parts, " ")
+}
+
+func reviewStateMarker(state string) string {
+	switch strings.ToLower(strings.TrimSpace(state)) {
+	case "approved", "approve":
+		return "✓"
+	case "changes_requested", "request_changes", "changes requested":
+		return "!"
+	case "commented", "comment":
+		return "•"
+	case "dismissed":
+		return "×"
+	default:
+		return "-"
+	}
+}
+
+func trimTrailingBlankLines(lines []string) []string {
+	for len(lines) > 0 && strings.TrimSpace(lines[len(lines)-1]) == "" {
+		lines = lines[:len(lines)-1]
+	}
+	return lines
 }
 
 func prSheetWidth(totalWidth int) int {

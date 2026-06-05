@@ -76,6 +76,7 @@ func (s *fakePluginServer) Initialize(_ context.Context, req pluginsdk.Initializ
 			Name:  "fake-plugin",
 			Capabilities: pluginsdk.ReviewProviderCapabilities{
 				LoadRemoteComments: true,
+				LoadRemoteSnapshot: os.Getenv("FAKE_PLUGIN_SNAPSHOT") == "1",
 				PublishReview:      true,
 				Decisions:          []pluginsdk.ReviewDecision{pluginsdk.ReviewDecisionComment, pluginsdk.ReviewDecisionApprove},
 			},
@@ -104,6 +105,37 @@ func (s *fakePluginServer) LoadRemoteThreads(_ context.Context, req pluginsdk.Lo
 				},
 			},
 		},
+	}, nil
+}
+
+func (s *fakePluginServer) LoadRemoteSnapshot(_ context.Context, req pluginsdk.LoadRemoteSnapshotRequest) (pluginsdk.LoadRemoteSnapshotResult, error) {
+	if os.Getenv("FAKE_PLUGIN_SNAPSHOT") != "1" {
+		return pluginsdk.LoadRemoteSnapshotResult{}, protocol.NewError(protocol.ErrorUnsupportedCapability, "snapshot unsupported")
+	}
+	updated := time.Date(2026, 6, 5, 12, 30, 0, 0, time.UTC)
+	return pluginsdk.LoadRemoteSnapshotResult{
+		RuntimeProviderID: "snapshot-runtime",
+		Threads: []pluginsdk.RemoteReviewThread{{
+			ProviderID: "snapshot-runtime",
+			ExternalID: "snapshot-thread",
+			FilePath:   "snapshot.go",
+		}},
+		Overview: &pluginsdk.ProviderOverview{
+			RuntimeProviderID: "snapshot-runtime",
+			Title:             "Snapshot PR",
+			Number:            42,
+			State:             "OPEN",
+			ExternalURL:       "https://example.com/pr/42",
+			Author:            "alice",
+			Body:              "## Body",
+			BaseRef:           "main",
+			HeadRef:           "feature",
+			UpdatedAt:         &updated,
+			Comments:          []pluginsdk.ProviderIssueComment{{ExternalID: "ic1", Author: "bob", Body: "hello", CreatedAt: updated, UpdatedAt: updated, ExternalURL: "https://example.com/c/1"}},
+			Reviews:           []pluginsdk.ProviderReviewSummary{{ExternalID: "rv1", Author: "carol", State: "APPROVED", Body: "approved", SubmittedAt: updated, ExternalURL: "https://example.com/r/1"}},
+		},
+		Metadata:  map[string]string{"source": "snapshot"},
+		FetchedAt: &updated,
 	}, nil
 }
 
@@ -241,6 +273,47 @@ func TestClientLoadRemoteThreads(t *testing.T) {
 	assert.Equal(t, "main.go", threads[0].FilePath)
 	require.Len(t, threads[0].Comments, 1)
 	assert.Equal(t, "LGTM", threads[0].Comments[0].Body)
+}
+
+func TestClientLoadRemoteSnapshotFallsBackToThreadsWhenCapabilityMissing(t *testing.T) {
+	client := setupFakeClient(t)
+	_, err := client.Initialize(context.Background())
+	require.NoError(t, err)
+
+	snapshot, err := client.LoadRemoteSnapshot(context.Background(), core.ReviewContext{})
+	require.NoError(t, err)
+	require.Len(t, snapshot.Threads, 1)
+	assert.Equal(t, "thread-1", snapshot.Threads[0].ExternalID)
+	assert.Nil(t, snapshot.Overview)
+}
+
+func TestClientLoadRemoteSnapshotUsesAdvertisedSnapshotAndMapsOverview(t *testing.T) {
+	client := setupFakeClientWithEnv(t, DefaultPluginTimeout, "FAKE_PLUGIN_SNAPSHOT=1")
+	info, err := client.Initialize(context.Background())
+	require.NoError(t, err)
+	require.True(t, info.Capabilities.LoadRemoteSnapshot)
+
+	snapshot, err := client.LoadRemoteSnapshot(context.Background(), core.ReviewContext{})
+	require.NoError(t, err)
+	require.Equal(t, "snapshot-runtime", snapshot.RuntimeProviderID)
+	require.Len(t, snapshot.Threads, 1)
+	assert.Equal(t, "snapshot-thread", snapshot.Threads[0].ExternalID)
+	require.NotNil(t, snapshot.Overview)
+	assert.Equal(t, "snapshot-runtime", snapshot.Overview.RuntimeProviderID)
+	assert.Equal(t, "Snapshot PR", snapshot.Overview.Title)
+	assert.Equal(t, 42, snapshot.Overview.Number)
+	assert.Equal(t, "OPEN", snapshot.Overview.State)
+	assert.Equal(t, "alice", snapshot.Overview.Author)
+	assert.Equal(t, "main", snapshot.Overview.BaseRef)
+	assert.Equal(t, "feature", snapshot.Overview.HeadRef)
+	assert.Equal(t, "https://example.com/pr/42", snapshot.Overview.ExternalURL)
+	require.NotNil(t, snapshot.Overview.UpdatedAt)
+	assert.False(t, snapshot.Overview.UpdatedAt.IsZero())
+	require.Len(t, snapshot.Overview.Comments, 1)
+	assert.Equal(t, "bob", snapshot.Overview.Comments[0].Author)
+	require.Len(t, snapshot.Overview.Reviews, 1)
+	assert.Equal(t, "APPROVED", snapshot.Overview.Reviews[0].State)
+	assert.Equal(t, "snapshot", snapshot.Metadata["source"])
 }
 
 func TestClientMapsProtocolErrorsToProviderErrors(t *testing.T) {

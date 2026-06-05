@@ -81,9 +81,36 @@ type ProviderSnapshot struct {
 
 // ProviderOverview is a placeholder for richer provider overview data.
 type ProviderOverview struct {
-	Title       string `json:"title,omitempty"`
-	ExternalURL string `json:"external_url,omitempty"`
-	Body        string `json:"body,omitempty"`
+	RuntimeProviderID string                  `json:"runtime_provider_id,omitempty"`
+	Title             string                  `json:"title,omitempty"`
+	Number            int                     `json:"number,omitempty"`
+	State             string                  `json:"state,omitempty"`
+	ExternalURL       string                  `json:"external_url,omitempty"`
+	Author            string                  `json:"author,omitempty"`
+	Body              string                  `json:"body,omitempty"`
+	BaseRef           string                  `json:"base_ref,omitempty"`
+	HeadRef           string                  `json:"head_ref,omitempty"`
+	UpdatedAt         *time.Time              `json:"updated_at,omitempty"`
+	Comments          []ProviderIssueComment  `json:"comments,omitempty"`
+	Reviews           []ProviderReviewSummary `json:"reviews,omitempty"`
+}
+
+type ProviderIssueComment struct {
+	ExternalID  string    `json:"external_id"`
+	Author      string    `json:"author,omitempty"`
+	Body        string    `json:"body"`
+	CreatedAt   time.Time `json:"created_at"`
+	UpdatedAt   time.Time `json:"updated_at"`
+	ExternalURL string    `json:"external_url,omitempty"`
+}
+
+type ProviderReviewSummary struct {
+	ExternalID  string    `json:"external_id"`
+	Author      string    `json:"author,omitempty"`
+	State       string    `json:"state,omitempty"`
+	Body        string    `json:"body,omitempty"`
+	SubmittedAt time.Time `json:"submitted_at"`
+	ExternalURL string    `json:"external_url,omitempty"`
 }
 
 type ProviderSyncStatus string

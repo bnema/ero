@@ -27,6 +27,10 @@ type ActiveProviderState struct {
 	NextSyncAt        time.Time
 }
 
+type remoteSnapshotLoader interface {
+	LoadRemoteSnapshot(ctx context.Context, review core.ReviewContext) (core.ProviderSnapshot, error)
+}
+
 type ActiveProviderService struct {
 	catalog ports.ReviewProviderCatalog
 	factory ports.ReviewProviderClientFactory
@@ -168,7 +172,15 @@ func (s *ActiveProviderService) Refresh(ctx context.Context, review core.ReviewC
 	if client == nil {
 		return prev, core.NewProviderError(core.ProviderErrorNotApplicable, "no active provider", nil)
 	}
-	threads, err := client.LoadRemoteThreads(ctx, review)
+	var snap core.ProviderSnapshot
+	var err error
+	if loader, ok := client.(remoteSnapshotLoader); ok {
+		snap, err = loader.LoadRemoteSnapshot(ctx, review)
+	} else {
+		var threads []core.RemoteReviewThread
+		threads, err = client.LoadRemoteThreads(ctx, review)
+		snap.Threads = threads
+	}
 	if err != nil {
 		st := prev
 		st.LastError = err
@@ -187,7 +199,15 @@ func (s *ActiveProviderService) Refresh(ctx context.Context, review core.ReviewC
 	}
 	now := time.Now().UTC()
 	next := now.Add(s.poll.Interval)
-	snap := core.ProviderSnapshot{StableProviderKey: key, RuntimeProviderID: runtimeID, ContextKey: core.NewReviewContextKey(key, review), Threads: threads, FetchedAt: now, Sync: core.ProviderSyncState{Status: core.ProviderSyncStatusSynced, LastSyncAt: new(now), NextSyncAt: new(next)}}
+	if snap.RuntimeProviderID == "" {
+		snap.RuntimeProviderID = runtimeID
+	}
+	snap.StableProviderKey = key
+	snap.ContextKey = core.NewReviewContextKey(key, review)
+	if snap.FetchedAt.IsZero() {
+		snap.FetchedAt = now
+	}
+	snap.Sync = core.ProviderSyncState{Status: core.ProviderSyncStatusSynced, LastSyncAt: new(now), NextSyncAt: new(next)}
 	if s.cache != nil {
 		_ = s.cache.SaveProviderSnapshot(ctx, snap)
 	}

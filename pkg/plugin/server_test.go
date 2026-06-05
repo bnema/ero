@@ -25,6 +25,17 @@ type fakeProvider struct {
 	methodsCalled []string
 }
 
+type fakeSnapshotProvider struct {
+	*fakeProvider
+	snapshotResult plugin.LoadRemoteSnapshotResult
+	snapshotErr    error
+}
+
+func (f *fakeSnapshotProvider) LoadRemoteSnapshot(_ context.Context, _ plugin.LoadRemoteSnapshotRequest) (plugin.LoadRemoteSnapshotResult, error) {
+	f.methodsCalled = append(f.methodsCalled, "load_remote_snapshot")
+	return f.snapshotResult, f.snapshotErr
+}
+
 func (f *fakeProvider) Initialize(_ context.Context, _ plugin.InitializeRequest) (plugin.InitializeResult, error) {
 	f.methodsCalled = append(f.methodsCalled, "initialize")
 	return f.initResult, f.initErr
@@ -270,6 +281,60 @@ func TestServeReviewProviderLargeRequestLine(t *testing.T) {
 	}
 	if response.ID != "large" || response.Error != nil {
 		t.Fatalf("unexpected response: %#v", response)
+	}
+}
+
+func TestLoadRemoteSnapshotDispatchesOptionalMethod(t *testing.T) {
+	provider := &fakeSnapshotProvider{fakeProvider: &fakeProvider{}, snapshotResult: plugin.LoadRemoteSnapshotResult{RuntimeProviderID: "github", Overview: &plugin.ProviderOverview{Title: "PR"}}}
+	input := bytes.NewBufferString(`{"id":"s1","method":"load_remote_snapshot","params":{"context":{"repository":{"repo_path":"."}}}}` + "\n")
+	var output bytes.Buffer
+	if err := plugin.ServeReviewProvider(context.Background(), provider, input, &output); err != nil {
+		t.Fatalf("ServeReviewProvider returned error: %v", err)
+	}
+	var response struct {
+		ID     string                          `json:"id"`
+		Result plugin.LoadRemoteSnapshotResult `json:"result"`
+		Error  *plugin.Error                   `json:"error,omitempty"`
+	}
+	if err := json.Unmarshal(output.Bytes(), &response); err != nil {
+		t.Fatalf("invalid json: %v", err)
+	}
+	if response.Error != nil || response.Result.Overview == nil || response.Result.Overview.Title != "PR" {
+		t.Fatalf("unexpected response: %#v raw=%s", response, output.String())
+	}
+	if !reflect.DeepEqual(provider.methodsCalled, []string{"load_remote_snapshot"}) {
+		t.Fatalf("expected load_remote_snapshot call, got %v", provider.methodsCalled)
+	}
+}
+
+func TestLoadRemoteSnapshotUnsupportedKeepsOldProvidersValid(t *testing.T) {
+	provider := &fakeProvider{threadsResult: plugin.LoadRemoteThreadsResult{Threads: []plugin.RemoteReviewThread{{ProviderID: "old", ExternalID: "t1"}}}}
+	input := bytes.NewBufferString(strings.Join([]string{
+		`{"id":"s1","method":"load_remote_snapshot","params":{"context":{"repository":{"repo_path":"."}}}}`,
+		`{"id":"t1","method":"load_remote_threads","params":{"context":{"repository":{"repo_path":"."}}}}`,
+	}, "\n") + "\n")
+	var output bytes.Buffer
+	if err := plugin.ServeReviewProvider(context.Background(), provider, input, &output); err != nil {
+		t.Fatalf("ServeReviewProvider returned error: %v", err)
+	}
+	dec := json.NewDecoder(&output)
+	var unsupported plugin.Response
+	if err := dec.Decode(&unsupported); err != nil {
+		t.Fatalf("decode unsupported: %v", err)
+	}
+	if unsupported.Error == nil || unsupported.Error.Code != plugin.ErrorUnsupportedCapability {
+		t.Fatalf("expected unsupported capability, got %#v", unsupported.Error)
+	}
+	var fallback struct {
+		ID     string                         `json:"id"`
+		Result plugin.LoadRemoteThreadsResult `json:"result"`
+		Error  *plugin.Error                  `json:"error,omitempty"`
+	}
+	if err := dec.Decode(&fallback); err != nil {
+		t.Fatalf("decode fallback: %v", err)
+	}
+	if fallback.Error != nil || len(fallback.Result.Threads) != 1 {
+		t.Fatalf("expected fallback threads, got %#v", fallback)
 	}
 }
 

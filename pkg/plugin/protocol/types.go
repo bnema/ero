@@ -58,6 +58,7 @@ type ReviewProviderInfo struct {
 // ReviewProviderCapabilities declares what a provider can do.
 type ReviewProviderCapabilities struct {
 	LoadRemoteComments bool             `json:"load_remote_comments"`
+	LoadRemoteSnapshot bool             `json:"load_remote_snapshot,omitempty"`
 	PublishReview      bool             `json:"publish_review"`
 	Decisions          []ReviewDecision `json:"decisions"`
 	IdempotentPublish  bool             `json:"idempotent_publish"`
@@ -100,6 +101,54 @@ type LoadRemoteThreadsRequest struct {
 // LoadRemoteThreadsResult returns the imported remote threads.
 type LoadRemoteThreadsResult struct {
 	Threads []RemoteReviewThread `json:"threads"`
+}
+
+// ---- load_remote_snapshot ----
+
+type LoadRemoteSnapshotRequest struct {
+	Context ReviewContext `json:"context"`
+}
+
+type LoadRemoteSnapshotResult struct {
+	RuntimeProviderID string               `json:"runtime_provider_id,omitempty"`
+	Threads           []RemoteReviewThread `json:"threads"`
+	Overview          *ProviderOverview    `json:"overview,omitempty"`
+	Metadata          map[string]string    `json:"metadata,omitempty"`
+	FetchedAt         *time.Time           `json:"fetched_at,omitempty"`
+	ExpiresAt         *time.Time           `json:"expires_at,omitempty"`
+}
+
+type ProviderOverview struct {
+	RuntimeProviderID string                  `json:"runtime_provider_id,omitempty"`
+	Title             string                  `json:"title,omitempty"`
+	Number            int                     `json:"number,omitempty"`
+	State             string                  `json:"state,omitempty"`
+	ExternalURL       string                  `json:"external_url,omitempty"`
+	Author            string                  `json:"author,omitempty"`
+	Body              string                  `json:"body,omitempty"`
+	BaseRef           string                  `json:"base_ref,omitempty"`
+	HeadRef           string                  `json:"head_ref,omitempty"`
+	UpdatedAt         *time.Time              `json:"updated_at,omitempty"`
+	Comments          []ProviderIssueComment  `json:"comments,omitempty"`
+	Reviews           []ProviderReviewSummary `json:"reviews,omitempty"`
+}
+
+type ProviderIssueComment struct {
+	ExternalID  string    `json:"external_id"`
+	Author      string    `json:"author,omitempty"`
+	Body        string    `json:"body"`
+	CreatedAt   time.Time `json:"created_at"`
+	UpdatedAt   time.Time `json:"updated_at"`
+	ExternalURL string    `json:"external_url,omitempty"`
+}
+
+type ProviderReviewSummary struct {
+	ExternalID  string    `json:"external_id"`
+	Author      string    `json:"author,omitempty"`
+	State       string    `json:"state,omitempty"`
+	Body        string    `json:"body,omitempty"`
+	SubmittedAt time.Time `json:"submitted_at"`
+	ExternalURL string    `json:"external_url,omitempty"`
 }
 
 // ---- publish_review ----
