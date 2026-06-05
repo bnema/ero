@@ -90,6 +90,9 @@ func (s *fakePluginServer) DetectContext(_ context.Context, req pluginsdk.Detect
 }
 
 func (s *fakePluginServer) LoadRemoteThreads(_ context.Context, req pluginsdk.LoadRemoteThreadsRequest) (pluginsdk.LoadRemoteThreadsResult, error) {
+	if code := os.Getenv("FAKE_PLUGIN_LOAD_ERROR_CODE"); code != "" {
+		return pluginsdk.LoadRemoteThreadsResult{}, protocol.NewError(code, "remote load failed")
+	}
 	return pluginsdk.LoadRemoteThreadsResult{
 		Threads: []pluginsdk.RemoteReviewThread{
 			{
@@ -238,6 +241,15 @@ func TestClientLoadRemoteThreads(t *testing.T) {
 	assert.Equal(t, "main.go", threads[0].FilePath)
 	require.Len(t, threads[0].Comments, 1)
 	assert.Equal(t, "LGTM", threads[0].Comments[0].Body)
+}
+
+func TestClientMapsProtocolErrorsToProviderErrors(t *testing.T) {
+	client := setupFakeClientWithEnv(t, DefaultPluginTimeout, "FAKE_PLUGIN_LOAD_ERROR_CODE="+protocol.ErrorRemoteRateLimited)
+
+	_, err := client.LoadRemoteThreads(context.Background(), core.ReviewContext{})
+	require.Error(t, err)
+	assert.Equal(t, core.ProviderErrorRateLimited, core.ClassifyProviderError(err))
+	assert.True(t, core.IsRetryableProviderError(err))
 }
 
 func TestClientPublishReview(t *testing.T) {

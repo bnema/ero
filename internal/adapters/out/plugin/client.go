@@ -277,7 +277,7 @@ func (c *Client) call(ctx context.Context, method string, params any, result any
 
 		// Check for protocol error.
 		if resp.Error != nil {
-			return resp.Error
+			return toCoreProviderError(resp.Error)
 		}
 
 		// Decode the result into the caller's type.
@@ -313,6 +313,30 @@ func (c *Client) markUnusableLocked() {
 var _ ports.ReviewProviderClient = (*Client)(nil)
 
 // ---------- conversion helpers ----------
+
+func toCoreProviderError(err *protocol.Error) error {
+	if err == nil {
+		return nil
+	}
+	kind := core.ProviderErrorInternal
+	switch err.Code {
+	case protocol.ErrorAuthRequired:
+		kind = core.ProviderErrorAuthenticationRequired
+	case protocol.ErrorNotApplicable:
+		kind = core.ProviderErrorNotApplicable
+	case protocol.ErrorUnsupportedCapability:
+		kind = core.ProviderErrorUnsupportedCapability
+	case protocol.ErrorRemoteRateLimited:
+		kind = core.ProviderErrorRateLimited
+	case protocol.ErrorNetwork:
+		kind = core.ProviderErrorTransientNetwork
+	case protocol.ErrorRemoteValidationFailed, protocol.ErrorInvalidRequest:
+		kind = core.ProviderErrorRemoteValidation
+	case protocol.ErrorInternal, protocol.ErrorPartialPublishUnknown:
+		kind = core.ProviderErrorInternal
+	}
+	return core.NewProviderError(kind, err.Error(), err)
+}
 
 func toCoreProviderInfo(info protocol.ReviewProviderInfo) core.ReviewProviderInfo {
 	decisions := make([]core.ReviewDecision, len(info.Capabilities.Decisions))
