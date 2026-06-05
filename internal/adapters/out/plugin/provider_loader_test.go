@@ -5,6 +5,7 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/require"
 
@@ -121,6 +122,55 @@ label = "pi-coding-agent"
 	require.NoError(t, err)
 	require.Len(t, providers, 1)
 	require.FileExists(t, filepath.Join(dir, "runtime-plugin"))
+	require.NoError(t, providers[0].Close())
+}
+
+func TestReviewProviderLoaderRebuildsStaleLocalRuntimeBeforeStartingProvider(t *testing.T) {
+	t.Parallel()
+
+	dir := t.TempDir()
+	runtimePath := filepath.Join(dir, "runtime-plugin")
+	buildMarker := filepath.Join(dir, "build-ran")
+	buildScript := filepath.Join(dir, "build-runtime.sh")
+	err := os.WriteFile(buildScript, []byte("#!/bin/sh\necho rebuilt > ./build-ran\ncat > ./runtime-plugin <<'EOF'\n#!/bin/sh\ncat\nEOF\nchmod +x ./runtime-plugin\n"), 0o755)
+	require.NoError(t, err)
+	err = os.WriteFile(runtimePath, []byte("#!/bin/sh\necho stale-runtime\n"), 0o755)
+	require.NoError(t, err)
+	oldTime := time.Now().Add(-2 * time.Hour)
+	require.NoError(t, os.Chtimes(runtimePath, oldTime, oldTime))
+	err = os.WriteFile(filepath.Join(dir, "cmd-source.go"), []byte("package main\n"), 0o644)
+	require.NoError(t, err)
+	err = os.WriteFile(filepath.Join(dir, "ero-plugin.toml"), []byte(`name = "buildable"
+version = "0.1.0"
+manifest_version = "1"
+protocol = "ero.plugin.v1"
+
+[runtime]
+command = "./runtime-plugin"
+
+[build]
+command = "`+buildScript+`"
+
+[[contributions]]
+type = "review_provider"
+id = "github"
+label = "GitHub"
+`), 0o644)
+	require.NoError(t, err)
+
+	registry := mocks.NewMockPluginRegistry(t)
+	registry.EXPECT().InstalledPlugins(context.Background()).Return([]ports.PluginDescriptor{{
+		Name: "buildable",
+		Path: dir,
+		Contributions: []ports.PluginContribution{
+			{Type: "review_provider", ID: "github", Label: "GitHub"},
+		},
+	}}, nil)
+
+	providers, err := NewReviewProviderLoader(registry).LoadReviewProviders(context.Background())
+	require.NoError(t, err)
+	require.Len(t, providers, 1)
+	require.FileExists(t, buildMarker)
 	require.NoError(t, providers[0].Close())
 }
 

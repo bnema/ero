@@ -92,7 +92,7 @@ func (l *ReviewProviderLoader) createReviewProviderClient(ctx context.Context, d
 	if command == "" {
 		return nil, fmt.Errorf("plugin runtime command is empty")
 	}
-	if !runtimeCommandAvailable(command, descriptor.PluginPath) && strings.TrimSpace(manifest.Build.Command) != "" {
+	if shouldBuildRuntime(command, descriptor.PluginPath, manifest.Build.Command) {
 		if err := runPluginBuildCommand(ctx, descriptor.PluginPath, manifest.Build.Command, l.timeout); err != nil {
 			log := zerowrap.FromCtx(ctx)
 			log.Warn().Err(err).Str("plugin_path", descriptor.PluginPath).Msg("build plugin runtime failed")
@@ -131,19 +131,87 @@ func canonicalInstalledPluginIdentity(descriptor ports.PluginDescriptor) string 
 }
 
 func runtimeCommandAvailable(command, pluginDir string) bool {
+	_, ok := runtimeCommandInfo(command, pluginDir)
+	return ok
+}
+
+func runtimeCommandInfo(command, pluginDir string) (os.FileInfo, bool) {
 	if command == "" {
-		return false
+		return nil, false
 	}
 	if !strings.Contains(command, "/") {
 		_, err := exec.LookPath(command)
-		return err == nil
+		return nil, err == nil
 	}
+	path := runtimeCommandPath(command, pluginDir)
+	info, err := os.Stat(path)
+	return info, err == nil && !info.IsDir()
+}
+
+func runtimeCommandPath(command, pluginDir string) string {
 	path := command
 	if !filepath.IsAbs(path) {
 		path = filepath.Join(pluginDir, path)
 	}
-	info, err := os.Stat(path)
-	return err == nil && !info.IsDir()
+	return filepath.Clean(path)
+}
+
+func shouldBuildRuntime(command, pluginDir, buildCommand string) bool {
+	buildCommand = strings.TrimSpace(buildCommand)
+	if buildCommand == "" {
+		return false
+	}
+	runtimeInfo, available := runtimeCommandInfo(command, pluginDir)
+	if !available {
+		return true
+	}
+	if !strings.Contains(command, "/") {
+		return false
+	}
+	return pluginSourceNewerThanRuntime(pluginDir, runtimeCommandPath(command, pluginDir), runtimeInfo.ModTime(), buildCommand)
+}
+
+func pluginSourceNewerThanRuntime(pluginDir, runtimePath string, runtimeModTime time.Time, buildCommand string) bool {
+	runtimePath = filepath.Clean(runtimePath)
+	newer := false
+	_ = filepath.WalkDir(pluginDir, func(path string, d os.DirEntry, err error) error {
+		if err != nil || newer {
+			return nil
+		}
+		if d.IsDir() {
+			if d.Name() == ".git" {
+				return filepath.SkipDir
+			}
+			return nil
+		}
+		path = filepath.Clean(path)
+		if path == runtimePath || !isPluginSourcePath(path) {
+			return nil
+		}
+		info, err := d.Info()
+		if err == nil && info.ModTime().After(runtimeModTime) {
+			newer = true
+		}
+		return nil
+	})
+	if newer {
+		return true
+	}
+	buildCommandName, _ := splitRuntimeCommand(buildCommand)
+	if buildCommandName == "" || !strings.Contains(buildCommandName, "/") {
+		return false
+	}
+	buildPath := runtimeCommandPath(buildCommandName, pluginDir)
+	info, err := os.Stat(buildPath)
+	return err == nil && !info.IsDir() && info.ModTime().After(runtimeModTime)
+}
+
+func isPluginSourcePath(path string) bool {
+	switch filepath.Base(path) {
+	case "ero-plugin.toml", "go.mod", "go.sum":
+		return true
+	}
+	return filepath.Ext(path) == ".go"
 }
 
 func runPluginBuildCommand(ctx context.Context, pluginDir, buildCommand string, timeout time.Duration) error {
