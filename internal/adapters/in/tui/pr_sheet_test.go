@@ -24,8 +24,12 @@ func TestPRSheetOverlaysRightSideFullHeightWithLeftSeparatorOnly(t *testing.T) {
 	require.Len(t, lines, 8)
 
 	sheetWidth := prSheetWidth(model.width)
+	assert.Equal(t, model.width/2, sheetWidth)
 	separatorColumn := model.width - sheetWidth
 	separatorRows := 0
+	firstLineRunes := []rune(lines[0])
+	require.Greater(t, len(firstLineRunes), separatorColumn)
+	assert.Equal(t, '│', firstLineRunes[separatorColumn])
 	for _, line := range lines {
 		runes := []rune(line)
 		if len(runes) <= separatorColumn {
@@ -44,6 +48,12 @@ func TestPRSheetOverlaysRightSideFullHeightWithLeftSeparatorOnly(t *testing.T) {
 	assert.NotContains(t, view, "┐")
 	assert.NotContains(t, view, "└")
 	assert.NotContains(t, view, "┘")
+}
+
+func TestPRSheetWidthIsHalfOfView(t *testing.T) {
+	assert.Equal(t, 40, prSheetWidth(80))
+	assert.Equal(t, 30, prSheetWidth(60))
+	assert.Equal(t, 1, prSheetWidth(1))
 }
 
 func TestPRSheetOverlayDoesNotReflowUnderlyingDiffContent(t *testing.T) {

@@ -80,7 +80,7 @@ func TestStatusbarProviderSyncUsesNerdFontProviderGlyphAndStatusDot(t *testing.T
 
 		view := stripANSIForStatusbarTest(NewStatusBar(120).Render(model))
 
-		require.Contains(t, view, "●")
+		require.Contains(t, view, nerdFontGitHubLarge+" "+nerdFontSyncDot)
 	}
 }
 
@@ -90,7 +90,7 @@ func TestStatusbarProviderSyncOmitsStatusWordWhenNerdFontSymbolIsShown(t *testin
 
 	view := stripANSIForStatusbarTest(NewStatusBar(120).Render(model))
 
-	require.Contains(t, view, "●")
+	require.Contains(t, view, nerdFontGitHubLarge+" "+nerdFontSyncDot)
 	require.NotContains(t, view, "")
 	require.NotContains(t, view, "synced")
 }
@@ -101,10 +101,12 @@ func TestStatusbarShowsCompactActiveProviderAndAdditionalCount(t *testing.T) {
 	model.ProviderSwitch = true
 	model.NerdFont = true
 
-	view := stripANSIForStatusbarTest(NewStatusBar(120).Render(model))
+	raw := NewStatusBar(120).Render(model)
+	view := stripANSIForStatusbarTest(raw)
 
-	require.Contains(t, view, "● +1")
+	require.Contains(t, view, nerdFontGitHubLarge+" "+nerdFontSyncDot+" +1")
 	require.NotContains(t, view, "2 providers")
+	require.Contains(t, raw, "48;5;236")
 	require.Contains(t, view, "p provider")
 	require.Contains(t, view, "P publish")
 }

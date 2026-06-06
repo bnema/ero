@@ -34,8 +34,8 @@ func (m Model) ScrollPRSheet(delta int) Model {
 func (m Model) renderPRSheetOverlay(content string) string {
 	width := max(m.width, 1)
 	height := max(m.height, 1)
+	paneWidth := prSheetWidth(width)
 	pane := m.renderPRSheet(width, height)
-	paneWidth := lipgloss.Width(pane)
 
 	canvas := lipgloss.NewCanvas(width, height)
 	compositor := lipgloss.NewCompositor(
@@ -221,7 +221,7 @@ func prSheetWidth(totalWidth int) int {
 	if totalWidth <= 1 {
 		return 1
 	}
-	return min(max(totalWidth/3, 32), totalWidth)
+	return max(totalWidth/2, 1)
 }
 
 func visiblePRSheetLines(lines []string, offset, height int) []string {

@@ -2,6 +2,7 @@ package component
 
 import (
 	"fmt"
+	"image/color"
 	"strings"
 	"time"
 
@@ -50,8 +51,8 @@ func (c StatusBar) Render(model StatusModel) string {
 	if model.ProviderCount > 0 && (strings.TrimSpace(model.ActiveProviderLabel) == "" || !model.NerdFont) {
 		segments = append(segments, statusSegment{style: theme.StatusInfoStyle, label: providerCountLabel(model.ProviderCount)})
 	}
-	if syncLabel := providerSyncLabel(model); syncLabel != "" {
-		segments = append(segments, statusSegment{style: theme.StatusInfoStyle, label: syncLabel})
+	if syncSegment := providerSyncSegment(model); syncSegment.label != "" || syncSegment.rendered != "" {
+		segments = append(segments, syncSegment)
 	}
 	if model.DraftCommentCount > 0 {
 		segments = append(segments, statusSegment{style: theme.StatusInfoStyle, label: draftCommentCountLabel(model.DraftCommentCount)})
@@ -75,8 +76,9 @@ func (c StatusBar) Render(model StatusModel) string {
 }
 
 type statusSegment struct {
-	style lipgloss.Style
-	label string
+	style    lipgloss.Style
+	label    string
+	rendered string
 }
 
 type KeyHint struct {
@@ -114,6 +116,10 @@ func renderStatusSegments(width int, segments ...statusSegment) string {
 		if remaining <= 0 {
 			break
 		}
+		if segment.rendered != "" {
+			rendered.WriteString(ansi.Truncate(segment.rendered, remaining, "…"))
+			continue
+		}
 		padding := segment.style.GetHorizontalPadding()
 		labelWidth := remaining - padding
 		if labelWidth <= 0 {
@@ -146,6 +152,22 @@ func providerCountLabel(count int) string {
 	return fmt.Sprintf("%d providers", count)
 }
 
+const (
+	nerdFontGitHubLarge = "\uf113" // nf-fa-github_alt
+	nerdFontSyncDot     = "\u25cf"
+)
+
+func providerSyncSegment(model StatusModel) statusSegment {
+	if model.NerdFont && strings.TrimSpace(model.ActiveProviderLabel) != "" {
+		return statusSegment{rendered: renderNerdFontProviderSync(model)}
+	}
+	label := providerSyncLabel(model)
+	if label == "" {
+		return statusSegment{}
+	}
+	return statusSegment{style: theme.StatusInfoStyle, label: label}
+}
+
 func providerSyncLabel(model StatusModel) string {
 	provider := strings.TrimSpace(model.ActiveProviderLabel)
 	if provider == "" {
@@ -159,11 +181,8 @@ func providerSyncLabel(model StatusModel) string {
 	}
 
 	parts := []string{provider}
-	if model.NerdFont {
-		parts = []string{compactProviderLabel(provider, model.ProviderCount, model.ProviderSync.Status)}
-	}
 	status := providerSyncStatusLabel(model.ProviderSync.Status)
-	if status != "" && !model.NerdFont {
+	if status != "" {
 		parts = append(parts, status)
 	}
 	if model.ProviderSync.LastError != "" {
@@ -185,35 +204,62 @@ func draftCommentCountLabel(count int) string {
 	return fmt.Sprintf("%d draft comments", count)
 }
 
-func compactProviderLabel(provider string, providerCount int, status core.ProviderSyncStatus) string {
-	label := providerGlyph(provider) + providerStatusDot(status)
-	if providerCount > 1 {
-		label += fmt.Sprintf(" +%d", providerCount-1)
+func renderNerdFontProviderSync(model StatusModel) string {
+	provider := strings.TrimSpace(model.ActiveProviderLabel)
+	if runtimeName := strings.TrimSpace(model.ActiveRuntimeName); runtimeName != "" && runtimeName != provider {
+		provider += "/" + runtimeName
 	}
-	return label
+	var b strings.Builder
+	b.WriteString(theme.StatusBaseStyle.Render(" "))
+	b.WriteString(theme.StatusBaseStyle.Foreground(lipgloss.Color("248")).Render(providerGlyph(provider)))
+	b.WriteString(theme.StatusBaseStyle.Render(" "))
+	b.WriteString(theme.StatusBaseStyle.Foreground(providerStatusDotColor(model.ProviderSync.Status)).Render(nerdFontSyncDot))
+	for _, part := range nerdFontProviderSyncTextParts(model) {
+		b.WriteString(theme.StatusBaseStyle.Render(" "))
+		b.WriteString(theme.StatusBaseStyle.Foreground(lipgloss.Color("248")).Render(part))
+	}
+	b.WriteString(theme.StatusBaseStyle.Render(" "))
+	return b.String()
+}
+
+func nerdFontProviderSyncTextParts(model StatusModel) []string {
+	parts := []string{}
+	if model.ProviderCount > 1 {
+		parts = append(parts, fmt.Sprintf("+%d", model.ProviderCount-1))
+	}
+	if model.ProviderSync.LastError != "" {
+		parts = append(parts, TruncateRunes(model.ProviderSync.LastError, 24))
+	}
+	if model.ProviderSync.LastSyncAt != nil {
+		parts = append(parts, "last "+formatStatusTime(*model.ProviderSync.LastSyncAt))
+	}
+	if model.ProviderSync.NextSyncAt != nil {
+		parts = append(parts, "next "+formatStatusTime(*model.ProviderSync.NextSyncAt))
+	}
+	return parts
 }
 
 func providerGlyph(provider string) string {
 	provider = strings.ToLower(strings.TrimSpace(provider))
 	if strings.Contains(provider, "github") {
-		return ""
+		return nerdFontGitHubLarge
 	}
 	return providerAbbreviation(provider)
 }
 
-func providerStatusDot(status core.ProviderSyncStatus) string {
-	color := lipgloss.Color("81")
+func providerStatusDotColor(status core.ProviderSyncStatus) color.Color {
 	switch status {
 	case core.ProviderSyncStatusSynced:
-		color = lipgloss.Color("#3fb950")
+		return lipgloss.Color("#3fb950")
 	case core.ProviderSyncStatusFailed:
-		color = lipgloss.Color("#ff7b72")
+		return lipgloss.Color("#ff7b72")
 	case core.ProviderSyncStatusBackingOff:
-		color = lipgloss.Color("#ffa657")
+		return lipgloss.Color("#ffa657")
 	case core.ProviderSyncStatusLoadingCache, core.ProviderSyncStatusSyncing:
-		color = lipgloss.Color("#58a6ff")
+		return lipgloss.Color("#58a6ff")
+	default:
+		return lipgloss.Color("81")
 	}
-	return theme.StatusBaseStyle.Foreground(color).Render("●")
 }
 
 func providerAbbreviation(provider string) string {
