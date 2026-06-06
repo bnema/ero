@@ -84,6 +84,26 @@ func TestStatusbarProviderSyncUsesNerdFontSymbolWhenSupported(t *testing.T) {
 	}
 }
 
+func TestStatusbarProviderSyncOmitsStatusWordWhenNerdFontSymbolIsShown(t *testing.T) {
+	model := syncStatusModel("GitHub", "github", core.ProviderSyncState{Status: core.ProviderSyncStatusSynced})
+	model.NerdFont = true
+
+	view := stripANSIForStatusbarTest(NewStatusBar(120).Render(model))
+
+	require.Contains(t, view, "GitHub/github")
+	require.Contains(t, view, "")
+	require.NotContains(t, view, "synced")
+}
+
+func TestStatusbarShowsDraftCommentCount(t *testing.T) {
+	model := baseStatusModel()
+	model.DraftCommentCount = 2
+
+	view := stripANSIForStatusbarTest(NewStatusBar(120).Render(model))
+
+	require.Contains(t, view, "2 draft comments")
+}
+
 func TestStatusbarProviderSyncNarrowWidthDegradesGracefully(t *testing.T) {
 	last := time.Date(2026, 6, 5, 12, 34, 0, 0, time.UTC)
 	next := last.Add(5 * time.Minute)

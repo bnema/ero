@@ -5,64 +5,51 @@ import (
 	"errors"
 	"testing"
 
+	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
 
 	"ero/internal/core"
 	"ero/internal/ports"
 )
 
-type fakeActiveProviderController struct {
-	catalog         []ports.ReviewProviderDescriptor
-	startState      ActiveProviderState
-	refreshState    ActiveProviderState
-	switchStates    map[string]ActiveProviderState
-	publishResult   core.PublishReviewResult
-	startErr        error
-	refreshErr      error
-	switchErrs      map[string]error
-	publishErr      error
-	startCalls      int
-	refreshManual   []bool
-	switchKeys      []string
-	publishRequests []core.PublishReviewRequest
-	closed          bool
-}
+type mockActiveProviderController struct{ mock.Mock }
 
-func (f *fakeActiveProviderController) Catalog(context.Context) ([]ports.ReviewProviderDescriptor, error) {
-	return append([]ports.ReviewProviderDescriptor(nil), f.catalog...), nil
+func (m *mockActiveProviderController) Catalog(ctx context.Context) ([]ports.ReviewProviderDescriptor, error) {
+	args := m.Called(ctx)
+	return args.Get(0).([]ports.ReviewProviderDescriptor), args.Error(1)
 }
-func (f *fakeActiveProviderController) Start(context.Context, core.ReviewContext) (ActiveProviderState, error) {
-	f.startCalls++
-	return f.startState, f.startErr
+func (m *mockActiveProviderController) Start(ctx context.Context, review core.ReviewContext) (ActiveProviderState, error) {
+	args := m.Called(ctx, review)
+	return args.Get(0).(ActiveProviderState), args.Error(1)
 }
-func (f *fakeActiveProviderController) Refresh(_ context.Context, _ core.ReviewContext, manual bool) (ActiveProviderState, error) {
-	f.refreshManual = append(f.refreshManual, manual)
-	return f.refreshState, f.refreshErr
+func (m *mockActiveProviderController) Refresh(ctx context.Context, review core.ReviewContext, manual bool) (ActiveProviderState, error) {
+	args := m.Called(ctx, review, manual)
+	return args.Get(0).(ActiveProviderState), args.Error(1)
 }
-func (f *fakeActiveProviderController) Switch(_ context.Context, _ core.ReviewContext, key string) (ActiveProviderState, error) {
-	f.switchKeys = append(f.switchKeys, key)
-	if err := f.switchErrs[key]; err != nil {
-		return ActiveProviderState{}, err
-	}
-	return f.switchStates[key], nil
+func (m *mockActiveProviderController) Switch(ctx context.Context, review core.ReviewContext, stableKey string) (ActiveProviderState, error) {
+	args := m.Called(ctx, review, stableKey)
+	return args.Get(0).(ActiveProviderState), args.Error(1)
 }
-func (f *fakeActiveProviderController) PublishReview(_ context.Context, request core.PublishReviewRequest) (core.PublishReviewResult, error) {
-	f.publishRequests = append(f.publishRequests, request)
-	return f.publishResult, f.publishErr
+func (m *mockActiveProviderController) PublishReview(ctx context.Context, request core.PublishReviewRequest) (core.PublishReviewResult, error) {
+	args := m.Called(ctx, request)
+	return args.Get(0).(core.PublishReviewResult), args.Error(1)
 }
-func (f *fakeActiveProviderController) Generation() int64 {
-	return int64(len(f.refreshManual) + len(f.switchKeys) + f.startCalls)
+func (m *mockActiveProviderController) Generation() int64 {
+	args := m.Called()
+	return args.Get(0).(int64)
 }
-func (f *fakeActiveProviderController) CompleteTimer(ctx context.Context, review core.ReviewContext, _ int64) (ActiveProviderState, error) {
-	return f.Refresh(ctx, review, false)
+func (m *mockActiveProviderController) CompleteTimer(ctx context.Context, review core.ReviewContext, generation int64) (ActiveProviderState, error) {
+	args := m.Called(ctx, review, generation)
+	return args.Get(0).(ActiveProviderState), args.Error(1)
 }
-func (f *fakeActiveProviderController) Close() error { f.closed = true; return nil }
+func (m *mockActiveProviderController) Close() error { return m.Called().Error(0) }
 
 func TestActiveProviderStartupLoadsOnlyActiveProviderState(t *testing.T) {
-	controller := &fakeActiveProviderController{
-		catalog:    []ports.ReviewProviderDescriptor{{Key: "github", Label: "GitHub"}, {Key: "other", Label: "Other"}},
-		startState: ActiveProviderState{StableProviderKey: "github", RuntimeProviderID: "github-runtime", RuntimeInfo: core.ReviewProviderInfo{ID: "github-runtime", Label: "GitHub"}, Snapshot: core.ProviderSnapshot{Threads: []core.RemoteReviewThread{{ProviderID: "github-runtime", ExternalID: "t1"}}, Sync: core.ProviderSyncState{Status: core.ProviderSyncStatusSynced}}},
-	}
+	controller := &mockActiveProviderController{}
+	catalog := []ports.ReviewProviderDescriptor{{Key: "github", Label: "GitHub"}, {Key: "other", Label: "Other"}}
+	startState := ActiveProviderState{StableProviderKey: "github", RuntimeProviderID: "github-runtime", RuntimeInfo: core.ReviewProviderInfo{ID: "github-runtime", Label: "GitHub"}, Snapshot: core.ProviderSnapshot{Threads: []core.RemoteReviewThread{{ProviderID: "github-runtime", ExternalID: "t1"}}, Sync: core.ProviderSyncState{Status: core.ProviderSyncStatusSynced}}}
+	controller.On("Catalog", mock.Anything).Return(catalog, nil).Once()
+	controller.On("Start", mock.Anything, mock.Anything).Return(startState, nil).Once()
 	m := NewModelWithActiveProviderContext(context.Background(), []core.ReviewFile{reviewFile("demo.go", "package main")}, nil, nil, core.ReviewRequest{}, nil, core.ReviewContext{}, controller, []ports.ReviewProviderClient{fakeProviderAsPort{&fakeReviewProvider{}}})
 
 	cmd := m.Init()
@@ -71,21 +58,23 @@ func TestActiveProviderStartupLoadsOnlyActiveProviderState(t *testing.T) {
 	m = updated.(Model)
 
 	require.NotNil(t, refreshCmd)
-	require.Equal(t, 1, controller.startCalls)
+	controller.AssertNumberOfCalls(t, "Start", 1)
 	require.Len(t, m.providerCatalog, 2)
 	require.Equal(t, "github", m.activeProviderKey)
 	require.Equal(t, "github-runtime", m.activeRuntimeID)
 	require.Equal(t, core.ProviderSyncStatusSynced, m.providerSyncState.Status)
 	require.Len(t, m.remoteThreads, 1)
 	require.Empty(t, m.providerInfoByClient)
+	controller.AssertExpectations(t)
 }
 
 func TestProviderStartupRefreshesRemoteThreadsAfterCacheState(t *testing.T) {
-	controller := &fakeActiveProviderController{
-		catalog:      []ports.ReviewProviderDescriptor{{Key: "github", Label: "GitHub"}},
-		startState:   ActiveProviderState{StableProviderKey: "github", RuntimeProviderID: "github", RuntimeInfo: core.ReviewProviderInfo{ID: "github", Label: "GitHub"}, Snapshot: core.ProviderSnapshot{Threads: []core.RemoteReviewThread{{ExternalID: "cached"}}}},
-		refreshState: ActiveProviderState{StableProviderKey: "github", RuntimeProviderID: "github", RuntimeInfo: core.ReviewProviderInfo{ID: "github", Label: "GitHub"}, Snapshot: core.ProviderSnapshot{Threads: []core.RemoteReviewThread{{ExternalID: "fresh"}}}},
-	}
+	controller := &mockActiveProviderController{}
+	startState := ActiveProviderState{StableProviderKey: "github", RuntimeProviderID: "github", RuntimeInfo: core.ReviewProviderInfo{ID: "github", Label: "GitHub"}, Snapshot: core.ProviderSnapshot{Threads: []core.RemoteReviewThread{{ExternalID: "cached"}}}}
+	refreshState := ActiveProviderState{StableProviderKey: "github", RuntimeProviderID: "github", RuntimeInfo: core.ReviewProviderInfo{ID: "github", Label: "GitHub"}, Snapshot: core.ProviderSnapshot{Threads: []core.RemoteReviewThread{{ExternalID: "fresh"}}}}
+	controller.On("Catalog", mock.Anything).Return([]ports.ReviewProviderDescriptor{{Key: "github", Label: "GitHub"}}, nil).Once()
+	controller.On("Start", mock.Anything, mock.Anything).Return(startState, nil).Once()
+	controller.On("Refresh", mock.Anything, mock.Anything, false).Return(refreshState, nil).Once()
 	m := NewModelWithActiveProviderContext(context.Background(), nil, nil, nil, core.ReviewRequest{}, nil, core.ReviewContext{}, controller, nil)
 
 	started, refreshCmd := m.Update(m.Init()())
@@ -96,13 +85,16 @@ func TestProviderStartupRefreshesRemoteThreadsAfterCacheState(t *testing.T) {
 
 	refreshed, _ := m.Update(refreshCmd())
 	m = refreshed.(Model)
-	require.Equal(t, []bool{false}, controller.refreshManual)
+	controller.AssertCalled(t, "Refresh", mock.Anything, mock.Anything, false)
 	require.Len(t, m.remoteThreads, 1)
 	require.Equal(t, "fresh", m.remoteThreads[0].ExternalID)
+	controller.AssertExpectations(t)
 }
 
 func TestProviderRefreshManualReplacesRemoteThreads(t *testing.T) {
-	controller := &fakeActiveProviderController{refreshState: ActiveProviderState{StableProviderKey: "github", RuntimeProviderID: "github", Snapshot: core.ProviderSnapshot{Threads: []core.RemoteReviewThread{{ExternalID: "new"}}}}}
+	controller := &mockActiveProviderController{}
+	refreshState := ActiveProviderState{StableProviderKey: "github", RuntimeProviderID: "github", Snapshot: core.ProviderSnapshot{Threads: []core.RemoteReviewThread{{ExternalID: "new"}}}}
+	controller.On("Refresh", mock.Anything, mock.Anything, true).Return(refreshState, nil).Once()
 	m := NewModelWithActiveProviderContext(context.Background(), nil, nil, nil, core.ReviewRequest{}, nil, core.ReviewContext{}, controller, nil)
 	m.remoteThreads = []core.RemoteReviewThread{{ExternalID: "old"}}
 
@@ -110,13 +102,16 @@ func TestProviderRefreshManualReplacesRemoteThreads(t *testing.T) {
 	updated, _ := m.Update(msg)
 	m = updated.(Model)
 
-	require.Equal(t, []bool{true}, controller.refreshManual)
+	controller.AssertCalled(t, "Refresh", mock.Anything, mock.Anything, true)
 	require.Len(t, m.remoteThreads, 1)
 	require.Equal(t, "new", m.remoteThreads[0].ExternalID)
+	controller.AssertExpectations(t)
 }
 
 func TestProviderSwitchReplacesRemoteData(t *testing.T) {
-	controller := &fakeActiveProviderController{switchStates: map[string]ActiveProviderState{"other": {StableProviderKey: "other", RuntimeProviderID: "other-runtime", RuntimeInfo: core.ReviewProviderInfo{ID: "other-runtime"}, Snapshot: core.ProviderSnapshot{Threads: []core.RemoteReviewThread{{ExternalID: "other-thread"}}}}}, switchErrs: map[string]error{}}
+	controller := &mockActiveProviderController{}
+	switchState := ActiveProviderState{StableProviderKey: "other", RuntimeProviderID: "other-runtime", RuntimeInfo: core.ReviewProviderInfo{ID: "other-runtime"}, Snapshot: core.ProviderSnapshot{Threads: []core.RemoteReviewThread{{ExternalID: "other-thread"}}}}
+	controller.On("Switch", mock.Anything, mock.Anything, "other").Return(switchState, nil).Once()
 	m := NewModelWithActiveProviderContext(context.Background(), nil, nil, nil, core.ReviewRequest{}, nil, core.ReviewContext{}, controller, nil)
 	m.remoteThreads = []core.RemoteReviewThread{{ExternalID: "old"}}
 
@@ -124,27 +119,36 @@ func TestProviderSwitchReplacesRemoteData(t *testing.T) {
 	updated, _ := m.Update(msg)
 	m = updated.(Model)
 
-	require.Equal(t, []string{"other"}, controller.switchKeys)
+	controller.AssertCalled(t, "Switch", mock.Anything, mock.Anything, "other")
 	require.Equal(t, "other", m.activeProviderKey)
 	require.Len(t, m.remoteThreads, 1)
 	require.Equal(t, "other-thread", m.remoteThreads[0].ExternalID)
+	controller.AssertExpectations(t)
 }
 
 func TestActiveProviderPollTimerRefreshesWithGeneration(t *testing.T) {
-	controller := &fakeActiveProviderController{refreshState: ActiveProviderState{StableProviderKey: "github", RuntimeProviderID: "github", Snapshot: core.ProviderSnapshot{Threads: []core.RemoteReviewThread{{ExternalID: "polled"}}}}}
+	controller := &mockActiveProviderController{}
+	refreshed := ActiveProviderState{StableProviderKey: "github", RuntimeProviderID: "github", Snapshot: core.ProviderSnapshot{Threads: []core.RemoteReviewThread{{ExternalID: "polled"}}}}
+	controller.On("CompleteTimer", mock.Anything, mock.Anything, int64(42)).Return(refreshed, nil).Once()
 	m := NewModelWithActiveProviderContext(context.Background(), nil, nil, nil, core.ReviewRequest{}, nil, core.ReviewContext{}, controller, nil)
 
 	msg := m.completeActiveProviderTimerCmd(42)()
 	updated, _ := m.Update(msg)
 	m = updated.(Model)
 
-	require.Equal(t, []bool{false}, controller.refreshManual)
+	controller.AssertCalled(t, "CompleteTimer", mock.Anything, mock.Anything, int64(42))
 	require.Len(t, m.remoteThreads, 1)
 	require.Equal(t, "polled", m.remoteThreads[0].ExternalID)
+	controller.AssertExpectations(t)
 }
 
 func TestActiveProviderPublishUsesActiveProviderClient(t *testing.T) {
-	controller := &fakeActiveProviderController{publishResult: core.PublishReviewResult{ProviderID: "github", ExternalReviewID: "review-1"}}
+	controller := &mockActiveProviderController{}
+	publishResult := core.PublishReviewResult{ProviderID: "github", ExternalReviewID: "review-1"}
+	var publishedRequest core.PublishReviewRequest
+	controller.On("PublishReview", mock.Anything, mock.Anything).Run(func(args mock.Arguments) {
+		publishedRequest = args.Get(1).(core.PublishReviewRequest)
+	}).Return(publishResult, nil).Once()
 	m := NewModelWithActiveProviderContext(context.Background(), nil, nil, nil, core.ReviewRequest{}, nil, core.ReviewContext{}, controller, nil)
 	m.activeRuntimeInfo = core.ReviewProviderInfo{ID: "github", Label: "GitHub", Capabilities: core.ReviewProviderCapabilities{PublishReview: true}}
 	m.activeRuntimeID = "github"
@@ -157,13 +161,15 @@ func TestActiveProviderPublishUsesActiveProviderClient(t *testing.T) {
 	msg := cmd().(publishReviewCompletedMsg)
 	m, _ = m.handlePublishReviewCompleted(msg)
 
-	require.Len(t, controller.publishRequests, 1)
-	require.Equal(t, "github", controller.publishRequests[0].ProviderID)
+	controller.AssertNumberOfCalls(t, "PublishReview", 1)
+	require.Equal(t, "github", publishedRequest.ProviderID)
 	require.False(t, m.publish.active)
+	controller.AssertExpectations(t)
 }
 
 func TestProviderSwitchFailureClearsRemoteThreads(t *testing.T) {
-	controller := &fakeActiveProviderController{switchStates: map[string]ActiveProviderState{}, switchErrs: map[string]error{"other": errors.New("auth")}}
+	controller := &mockActiveProviderController{}
+	controller.On("Switch", mock.Anything, mock.Anything, "other").Return(ActiveProviderState{}, errors.New("auth")).Once()
 	m := NewModelWithActiveProviderContext(context.Background(), nil, nil, nil, core.ReviewRequest{}, nil, core.ReviewContext{}, controller, nil)
 	m.activeProviderKey = "github"
 	m.activeRuntimeID = "github"
@@ -178,4 +184,5 @@ func TestProviderSwitchFailureClearsRemoteThreads(t *testing.T) {
 	require.Empty(t, m.activeRuntimeID)
 	require.Empty(t, m.providerInfos)
 	require.Empty(t, m.remoteThreads)
+	controller.AssertExpectations(t)
 }

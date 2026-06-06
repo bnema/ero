@@ -5,6 +5,7 @@ import (
 	"testing"
 
 	tea "charm.land/bubbletea/v2"
+	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
 
 	"ero/internal/core"
@@ -12,13 +13,14 @@ import (
 )
 
 func TestProviderPickerDisplaysDescriptorRowsWithoutStartingInactiveProviders(t *testing.T) {
-	controller := &fakeActiveProviderController{
-		catalog: []ports.ReviewProviderDescriptor{
-			{Key: "github", Label: "GitHub", PluginName: "gh-plugin", PluginSource: "builtin"},
-			{Key: "gitlab", Label: "GitLab", PluginName: "gl-plugin", PluginSource: "local"},
-		},
-		startState: ActiveProviderState{StableProviderKey: "github", RuntimeProviderID: "github", RuntimeInfo: core.ReviewProviderInfo{ID: "github", Label: "GitHub"}, Snapshot: core.ProviderSnapshot{Sync: core.ProviderSyncState{Status: core.ProviderSyncStatusFailed, LastError: "missing token"}}},
+	controller := &mockActiveProviderController{}
+	catalog := []ports.ReviewProviderDescriptor{
+		{Key: "github", Label: "GitHub", PluginName: "gh-plugin", PluginSource: "builtin"},
+		{Key: "gitlab", Label: "GitLab", PluginName: "gl-plugin", PluginSource: "local"},
 	}
+	startState := ActiveProviderState{StableProviderKey: "github", RuntimeProviderID: "github", RuntimeInfo: core.ReviewProviderInfo{ID: "github", Label: "GitHub"}, Snapshot: core.ProviderSnapshot{Sync: core.ProviderSyncState{Status: core.ProviderSyncStatusFailed, LastError: "missing token"}}}
+	controller.On("Catalog", mock.Anything).Return(catalog, nil).Once()
+	controller.On("Start", mock.Anything, mock.Anything).Return(startState, nil).Once()
 	m := NewModelWithActiveProviderContext(context.Background(), nil, nil, nil, core.ReviewRequest{}, nil, core.ReviewContext{}, controller, nil)
 	updated, _ := m.Update(m.Init()())
 	m = updated.(Model)
@@ -27,7 +29,7 @@ func TestProviderPickerDisplaysDescriptorRowsWithoutStartingInactiveProviders(t 
 	m = updated.(Model)
 
 	require.True(t, m.providerPicker.open)
-	require.Equal(t, 1, controller.startCalls)
+	controller.AssertNumberOfCalls(t, "Start", 1)
 	view := stripANSI(m.View().Content)
 	require.Contains(t, view, "Review providers")
 	require.Contains(t, view, "* GitHub")
@@ -35,15 +37,14 @@ func TestProviderPickerDisplaysDescriptorRowsWithoutStartingInactiveProviders(t 
 	require.Contains(t, view, "missing token")
 	require.Contains(t, view, "GitLab")
 	require.Contains(t, view, "gl-plugin local")
+	controller.AssertExpectations(t)
 }
 
 func TestProviderPickerSelectEmitsSwitchCommandWithStableKey(t *testing.T) {
-	controller := &fakeActiveProviderController{
-		catalog:      []ports.ReviewProviderDescriptor{{Key: "github", Label: "GitHub"}, {Key: "gitlab", Label: "GitLab"}},
-		startState:   ActiveProviderState{StableProviderKey: "github"},
-		switchStates: map[string]ActiveProviderState{"gitlab": {StableProviderKey: "gitlab"}},
-		switchErrs:   map[string]error{},
-	}
+	controller := &mockActiveProviderController{}
+	controller.On("Catalog", mock.Anything).Return([]ports.ReviewProviderDescriptor{{Key: "github", Label: "GitHub"}, {Key: "gitlab", Label: "GitLab"}}, nil).Once()
+	controller.On("Start", mock.Anything, mock.Anything).Return(ActiveProviderState{StableProviderKey: "github"}, nil).Once()
+	controller.On("Switch", mock.Anything, mock.Anything, "gitlab").Return(ActiveProviderState{StableProviderKey: "gitlab"}, nil).Once()
 	m := NewModelWithActiveProviderContext(context.Background(), nil, nil, nil, core.ReviewRequest{}, nil, core.ReviewContext{}, controller, nil)
 	updated, _ := m.Update(m.Init()())
 	m = updated.(Model)
@@ -59,18 +60,17 @@ func TestProviderPickerSelectEmitsSwitchCommandWithStableKey(t *testing.T) {
 	m = updated.(Model)
 
 	require.False(t, m.providerPicker.open)
-	require.Equal(t, []string{"gitlab"}, controller.switchKeys)
+	controller.AssertCalled(t, "Switch", mock.Anything, mock.Anything, "gitlab")
 	require.Equal(t, "gitlab", m.activeProviderKey)
+	controller.AssertExpectations(t)
 }
 
 func TestProviderCycleAndRefreshShortcuts(t *testing.T) {
-	controller := &fakeActiveProviderController{
-		catalog:      []ports.ReviewProviderDescriptor{{Key: "github", Label: "GitHub"}, {Key: "gitlab", Label: "GitLab"}},
-		startState:   ActiveProviderState{StableProviderKey: "github"},
-		refreshState: ActiveProviderState{StableProviderKey: "github"},
-		switchStates: map[string]ActiveProviderState{"gitlab": {StableProviderKey: "gitlab"}},
-		switchErrs:   map[string]error{},
-	}
+	controller := &mockActiveProviderController{}
+	controller.On("Catalog", mock.Anything).Return([]ports.ReviewProviderDescriptor{{Key: "github", Label: "GitHub"}, {Key: "gitlab", Label: "GitLab"}}, nil).Once()
+	controller.On("Start", mock.Anything, mock.Anything).Return(ActiveProviderState{StableProviderKey: "github"}, nil).Once()
+	controller.On("Switch", mock.Anything, mock.Anything, "gitlab").Return(ActiveProviderState{StableProviderKey: "gitlab"}, nil).Once()
+	controller.On("Refresh", mock.Anything, mock.Anything, true).Return(ActiveProviderState{StableProviderKey: "github"}, nil).Once()
 	m := NewModelWithActiveProviderContext(context.Background(), nil, nil, nil, core.ReviewRequest{}, nil, core.ReviewContext{}, controller, nil)
 	updated, _ := m.Update(m.Init()())
 	m = updated.(Model)
@@ -80,10 +80,11 @@ func TestProviderCycleAndRefreshShortcuts(t *testing.T) {
 	require.NotNil(t, cmd)
 	updated, _ = m.Update(cmd())
 	m = updated.(Model)
-	require.Equal(t, []string{"gitlab"}, controller.switchKeys)
+	controller.AssertCalled(t, "Switch", mock.Anything, mock.Anything, "gitlab")
 
 	_, cmd = m.Update(keyPress("r"))
 	require.NotNil(t, cmd)
 	_ = cmd()
-	require.Equal(t, []bool{true}, controller.refreshManual)
+	controller.AssertCalled(t, "Refresh", mock.Anything, mock.Anything, true)
+	controller.AssertExpectations(t)
 }

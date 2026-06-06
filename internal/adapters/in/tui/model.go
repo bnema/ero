@@ -430,6 +430,19 @@ func (m Model) updateReviewAction(action keymap.Action) (tea.Model, tea.Cmd) {
 	return m, nil
 }
 
+func (m Model) unpublishedDraftCommentCount() int {
+	if m.reviewDraft == nil {
+		return 0
+	}
+	count := 0
+	for _, comment := range m.reviewDraft.Comments() {
+		if comment.State != core.ReviewCommentStatePublished {
+			count++
+		}
+	}
+	return count
+}
+
 func (m Model) View() tea.View {
 	review := m.reviewViewport.View(m.reviewVisualState())
 	if m.loading {
@@ -450,6 +463,7 @@ func (m Model) View() tea.View {
 			ActiveProviderLabel: m.activeRuntimeInfo.Label,
 			ActiveRuntimeName:   m.activeRuntimeID,
 			ProviderSync:        m.providerSyncState,
+			DraftCommentCount:   m.unpublishedDraftCommentCount(),
 			ShowNoProvider:      m.activeProvider != nil && m.activeProviderKey == "" && m.activeRuntimeInfo.ID == "",
 			NerdFont:            m.nerdFont,
 		}),

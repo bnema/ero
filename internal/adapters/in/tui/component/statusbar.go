@@ -23,6 +23,7 @@ type StatusModel struct {
 	ActiveProviderLabel string
 	ActiveRuntimeName   string
 	ProviderSync        core.ProviderSyncState
+	DraftCommentCount   int
 	ShowNoProvider      bool
 	NerdFont            bool
 }
@@ -50,6 +51,9 @@ func (c StatusBar) Render(model StatusModel) string {
 	}
 	if syncLabel := providerSyncLabel(model); syncLabel != "" {
 		segments = append(segments, statusSegment{style: theme.StatusInfoStyle, label: syncLabel})
+	}
+	if model.DraftCommentCount > 0 {
+		segments = append(segments, statusSegment{style: theme.StatusInfoStyle, label: draftCommentCountLabel(model.DraftCommentCount)})
 	}
 	prefix := renderStatusSegments(leftWidth, segments...)
 	percent := renderStatusSegments(leftWidth-lipgloss.Width(prefix), statusSegment{style: theme.StatusInfoStyle, label: fmt.Sprintf("%3.0f%%", model.ScrollPercent*100)})
@@ -151,7 +155,7 @@ func providerSyncLabel(model StatusModel) string {
 	status := providerSyncStatusLabel(model.ProviderSync.Status)
 	if status != "" {
 		if model.NerdFont {
-			status = providerSyncStatusSymbol(model.ProviderSync.Status) + " " + status
+			status = providerSyncStatusSymbol(model.ProviderSync.Status)
 		}
 		parts = append(parts, status)
 	}
@@ -165,6 +169,13 @@ func providerSyncLabel(model StatusModel) string {
 		parts = append(parts, "next "+formatStatusTime(*model.ProviderSync.NextSyncAt))
 	}
 	return strings.Join(parts, " ")
+}
+
+func draftCommentCountLabel(count int) string {
+	if count == 1 {
+		return "1 draft comment"
+	}
+	return fmt.Sprintf("%d draft comments", count)
 }
 
 func providerSyncStatusLabel(status core.ProviderSyncStatus) string {
