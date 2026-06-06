@@ -2,6 +2,20 @@ package theme
 
 import "charm.land/lipgloss/v2"
 
+const (
+	ColorText       = "#c9d1d9"
+	ColorMutedText  = "#8b949e"
+	ColorAccent     = "#58a6ff"
+	ColorWarning    = "#ffa657"
+	ColorKeyword    = "#ff7b72"
+	ColorFunction   = "#d2a8ff"
+	ColorString     = "#a5d6ff"
+	ColorNumber     = "#79c0ff"
+	ColorStatusBase = "236"
+	ColorStatusInfo = "248"
+	ColorCodeBg     = "#1f2a44"
+)
+
 var (
 	FileHeaderStyle      = lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("15"))
 	FileRuleStyle        = lipgloss.NewStyle().Foreground(lipgloss.Color("8"))

@@ -43,6 +43,23 @@ func TestMarkdownRendererCachesByInputWidthAndTheme(t *testing.T) {
 	}
 }
 
+func TestMarkdownRendererColorsHeadingsAndFencedCodeBlocks(t *testing.T) {
+	renderer := NewMarkdownRenderer()
+
+	got := renderer.Render("## Validation\n\n```go\nfmt.Println(\"hi\")\n```", 80, MarkdownThemeDark)
+	plain := regexp.MustCompile(`\x1b\[[0-9;?]*[ -/]*[@-~]`).ReplaceAllString(got, "")
+
+	if !strings.Contains(got, "\x1b[") {
+		t.Fatalf("expected rendered markdown to include ANSI color/style escapes, got %q", got)
+	}
+	if !strings.Contains(plain, "Validation") || !strings.Contains(plain, "fmt.Println") {
+		t.Fatalf("expected heading and code block content, got %q", got)
+	}
+	if strings.Contains(plain, "```") {
+		t.Fatalf("expected rendered fenced code block to omit markdown fences, got %q", got)
+	}
+}
+
 func TestMarkdownRendererRendersFencedCodeBlocks(t *testing.T) {
 	renderer := NewMarkdownRenderer()
 
@@ -57,6 +74,23 @@ func TestMarkdownRendererRendersFencedCodeBlocks(t *testing.T) {
 	}
 }
 
+func TestMarkdownRendererStripsOSC8Hyperlinks(t *testing.T) {
+	renderer := NewMarkdownRendererWithFactory(func(width int, theme MarkdownTheme) (markdownTermRenderer, error) {
+		return fakeMarkdownTermRenderer{render: func(markdown string) (string, error) {
+			return "\x1b]8;id=abc;https://github.com/bnema/ero\x1b\\GitHub\x1b]8;;\x1b\\", nil
+		}}, nil
+	})
+
+	got := renderer.Render("[GitHub](https://github.com/bnema/ero)", 80, MarkdownThemeDark)
+
+	if strings.Contains(got, "]8;") || strings.Contains(got, "id=abc") || strings.Contains(got, "\x1b]") {
+		t.Fatalf("expected OSC-8 hyperlink sequences to be stripped, got %q", got)
+	}
+	if !strings.Contains(got, "GitHub") {
+		t.Fatalf("expected link text to remain, got %q", got)
+	}
+}
+
 func TestMarkdownRendererReturnsSafeFallbackOnRenderError(t *testing.T) {
 	renderer := NewMarkdownRendererWithFactory(func(width int, theme MarkdownTheme) (markdownTermRenderer, error) {
 		return fakeMarkdownTermRenderer{render: func(markdown string) (string, error) {
@@ -64,9 +98,9 @@ func TestMarkdownRendererReturnsSafeFallbackOnRenderError(t *testing.T) {
 		}}, nil
 	})
 
-	got := renderer.Render("hello\x1b[31m **world**", 80, MarkdownThemeDark)
+	got := renderer.Render("hello\x1b[31m \x1b]8;id=x;https://example.invalid\x1b\\**world**\x1b]8;;\x1b\\", 80, MarkdownThemeDark)
 
-	if strings.Contains(got, "\x1b") {
+	if strings.Contains(got, "\x1b") || strings.Contains(got, "]8;") {
 		t.Fatalf("expected fallback to strip escape characters, got %q", got)
 	}
 	if !strings.Contains(got, "hello") || !strings.Contains(got, "world") {

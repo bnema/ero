@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"charm.land/lipgloss/v2"
+	"github.com/charmbracelet/x/ansi"
 
 	"ero/internal/core"
 )
@@ -59,8 +60,8 @@ func (m Model) renderPRSheet(width, height int) string {
 		if i < len(visibleLines) {
 			text = visibleLines[i]
 		}
-		row := "│ " + truncatePlainRow(text, contentWidth)
-		rows[i] = padRight(row, sheetWidth)
+		row := "│ " + ansi.Truncate(text, contentWidth, "")
+		rows[i] = padRightANSI(row, sheetWidth)
 	}
 	return strings.Join(rows, "\n")
 }
@@ -134,12 +135,24 @@ func (m Model) prSheetLineCount() int {
 }
 
 func renderPRSheetMarkdown(renderer *MarkdownRenderer, markdown string, width int) []string {
-	rendered := renderer.Render(markdown, width, MarkdownThemeDark)
-	plain := safeMarkdownFallback(rendered)
-	if strings.TrimSpace(plain) == "" {
+	rendered := sanitizeRenderedMarkdown(renderer.Render(markdown, width, MarkdownThemeDark))
+	if strings.TrimSpace(safeMarkdownFallback(rendered)) == "" {
 		return []string{"(empty)"}
 	}
-	return strings.Split(plain, "\n")
+	return trimRenderedMarkdownBlankLines(strings.Split(rendered, "\n"))
+}
+
+func trimRenderedMarkdownBlankLines(lines []string) []string {
+	for len(lines) > 0 && strings.TrimSpace(safeMarkdownFallback(lines[0])) == "" {
+		lines = lines[1:]
+	}
+	for len(lines) > 0 && strings.TrimSpace(safeMarkdownFallback(lines[len(lines)-1])) == "" {
+		lines = lines[:len(lines)-1]
+	}
+	if len(lines) == 0 {
+		return []string{"(empty)"}
+	}
+	return lines
 }
 
 func providerOverviewMetadata(overview *core.ProviderOverview) []string {
@@ -244,9 +257,9 @@ func pluralCount(count int, singular string) string {
 	return strconv.Itoa(count) + " " + pluralize(singular, count)
 }
 
-func padRight(s string, width int) string {
-	if lipgloss.Width(s) >= width {
+func padRightANSI(s string, width int) string {
+	if ansi.StringWidth(s) >= width {
 		return s
 	}
-	return s + strings.Repeat(" ", width-lipgloss.Width(s))
+	return s + strings.Repeat(" ", width-ansi.StringWidth(s))
 }

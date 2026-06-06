@@ -167,6 +167,41 @@ func TestPRSheetRendersOverviewMarkdownCommentsAndReviews(t *testing.T) {
 	assert.Contains(t, plain, "Looks good to me.")
 }
 
+func TestPRSheetRendersMarkdownHeadingsAndCodeBlocksWithColor(t *testing.T) {
+	model := NewModel(nil)
+	model.width = 120
+	model.height = 20
+	model.providerOverview = &core.ProviderOverview{
+		Title: "PR",
+		Body:  "## Details\n\n```go\nfunc main() {}\n```",
+	}
+
+	raw := model.renderPRSheet(model.width, model.height)
+	plain := stripANSI(raw)
+
+	require.Contains(t, plain, "Details")
+	require.Contains(t, plain, "func main")
+	require.Contains(t, raw, "\x1b[")
+}
+
+func TestPRSheetDoesNotLeakOSCHyperlinkSequences(t *testing.T) {
+	model := NewModel(nil)
+	model.width = 120
+	model.height = 20
+	model.providerOverview = &core.ProviderOverview{
+		Title: "PR",
+		Body:  "See https://github.com/example/repo/pull/1",
+	}
+
+	raw := model.renderPRSheet(model.width, model.height)
+	plain := stripANSI(raw)
+
+	require.Contains(t, plain, "github.com/example/repo")
+	require.NotContains(t, raw, "\x1b]8;")
+	require.NotContains(t, raw, "]8;id=")
+	require.NotContains(t, plain, "]8;id=")
+}
+
 func TestPRSheetRendersNilOverviewFallback(t *testing.T) {
 	t.Parallel()
 
