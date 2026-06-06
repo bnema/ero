@@ -133,7 +133,7 @@ func TestRunDetectsStartupModeWhenNoExplicitCommand(t *testing.T) {
 	}{
 		{name: "working changes", state: core.StartupState{HasUnstagedChanges: true}, wantMode: core.DiffModeWorking},
 		{name: "staged changes", state: core.StartupState{HasStagedChanges: true}, wantMode: core.DiffModeStaged},
-		{name: "ahead of upstream", state: core.StartupState{HasUpstream: true, Ahead: 1}, wantMode: core.DiffModeUpstream},
+		{name: "ahead of upstream with default branch", state: core.StartupState{HasUpstream: true, Ahead: 1, HasDefaultBranch: true}, wantMode: core.DiffModeBranch},
 		{name: "mixed prompts and uses selected mode", state: core.StartupState{HasStagedChanges: true, HasUnstagedChanges: true}, promptMode: core.DiffModeLocal, wantMode: core.DiffModeLocal},
 		{name: "mixed non-interactive errors", state: core.StartupState{HasStagedChanges: true, HasUnstagedChanges: true}, wantErr: "choose explicitly"},
 	}

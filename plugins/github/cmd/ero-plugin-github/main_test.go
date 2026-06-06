@@ -43,6 +43,37 @@ func TestGitHubRemoteParsing(t *testing.T) {
 	}
 }
 
+func TestDetectContextSkipsNonBranchReviewModes(t *testing.T) {
+	provider := githubProvider{newGraphQLClient: func() (graphQLDoer, error) {
+		t.Fatal("non-branch detection should not create a GraphQL client")
+		return nil, nil
+	}}
+	review := plugin.ReviewContext{Repository: plugin.RepositoryMetadata{Remotes: []plugin.GitRemote{{Name: "origin", URL: "git@github.com:owner/repo.git"}}, CurrentBranch: "feature", DefaultBranch: "main"}, Target: plugin.ReviewTargetMetadata{Mode: "upstream", HeadRef: "HEAD"}}
+
+	result, err := provider.DetectContext(context.Background(), plugin.DetectContextRequest{Context: review})
+
+	if err != nil {
+		t.Fatalf("DetectContext returned error: %v", err)
+	}
+	if result.Result.Applicable || !strings.Contains(result.Result.Reason, "branch mode") {
+		t.Fatalf("expected non-branch mode to be not applicable without sync failure: %#v", result)
+	}
+}
+
+func TestLoadRemoteSnapshotSkipsNonBranchReviewModes(t *testing.T) {
+	provider := githubProvider{newGraphQLClient: func() (graphQLDoer, error) {
+		t.Fatal("non-branch snapshot should not create a GraphQL client")
+		return nil, nil
+	}}
+	review := plugin.ReviewContext{Repository: plugin.RepositoryMetadata{Remotes: []plugin.GitRemote{{Name: "origin", URL: "git@github.com:owner/repo.git"}}, CurrentBranch: "feature", DefaultBranch: "main"}, Target: plugin.ReviewTargetMetadata{Mode: "range", BaseRef: "main", HeadRef: "HEAD"}}
+
+	_, err := provider.LoadRemoteSnapshot(context.Background(), plugin.LoadRemoteSnapshotRequest{Context: review})
+
+	if plugin.AsError(err) == nil || plugin.AsError(err).Code != plugin.ErrorNotApplicable || !strings.Contains(err.Error(), "branch mode") {
+		t.Fatalf("expected non-branch snapshot to be not applicable, got %v", err)
+	}
+}
+
 func TestDetectContextRequiresMatchingGitHubPullRequest(t *testing.T) {
 	list := ghPRListResponse{}
 	list.Repository.PullRequests.Nodes = []ghPRNode{{Number: 12, URL: "https://github.com/owner/repo/pull/12", BaseRefName: "main", HeadRefName: "feature"}}

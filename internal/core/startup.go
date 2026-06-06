@@ -46,12 +46,12 @@ func ResolveStartupDecision(state StartupState) StartupDecision {
 		return StartupDecision{Kind: StartupDecisionUseMode, DiffMode: DiffModeStaged}
 	case state.DetachedHead:
 		return StartupDecision{Kind: StartupDecisionNoReviewableChanges, Message: "detached HEAD has no safe default diff; choose an explicit diff mode"}
+	case state.HasDefaultBranch:
+		return StartupDecision{Kind: StartupDecisionUseMode, DiffMode: DiffModeBranch}
 	case state.HasUpstream && state.Ahead > 0:
 		return StartupDecision{Kind: StartupDecisionUseMode, DiffMode: DiffModeUpstream}
 	case state.HasUpstream && state.Behind > 0:
 		return StartupDecision{Kind: StartupDecisionNoReviewableChanges, Message: "branch is behind upstream; pull first or choose an explicit diff mode"}
-	case state.HasDefaultBranch:
-		return StartupDecision{Kind: StartupDecisionUseMode, DiffMode: DiffModeBranch}
 	default:
 		return StartupDecision{Kind: StartupDecisionNoReviewableChanges, Message: "no local changes or upstream/default branch diff detected"}
 	}

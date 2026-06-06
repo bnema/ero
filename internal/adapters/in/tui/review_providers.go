@@ -35,7 +35,7 @@ func (m Model) closeReviewProvidersCmd() tea.Cmd {
 
 func (m Model) startActiveProviderCmd() tea.Cmd {
 	activeProvider := m.activeProvider
-	if activeProvider == nil {
+	if activeProvider == nil || !m.activeProviderSyncEnabled() {
 		return nil
 	}
 	ctx := m.ctx
@@ -53,7 +53,7 @@ func (m Model) startActiveProviderCmd() tea.Cmd {
 
 func (m Model) refreshActiveProviderCmd(manual bool) tea.Cmd {
 	activeProvider := m.activeProvider
-	if activeProvider == nil {
+	if activeProvider == nil || !m.activeProviderSyncEnabled() {
 		return nil
 	}
 	ctx := m.ctx
@@ -66,7 +66,7 @@ func (m Model) refreshActiveProviderCmd(manual bool) tea.Cmd {
 
 func (m Model) switchActiveProviderCmd(stableKey string) tea.Cmd {
 	activeProvider := m.activeProvider
-	if activeProvider == nil {
+	if activeProvider == nil || !m.activeProviderSyncEnabled() {
 		return nil
 	}
 	ctx := m.ctx
@@ -78,7 +78,7 @@ func (m Model) switchActiveProviderCmd(stableKey string) tea.Cmd {
 }
 
 func (m Model) scheduleActiveProviderPollCmd() tea.Cmd {
-	if m.activeProvider == nil || m.providerSyncState.NextSyncAt == nil {
+	if m.activeProvider == nil || !m.activeProviderSyncEnabled() || m.providerSyncState.NextSyncAt == nil {
 		return nil
 	}
 	delay := max(time.Until(*m.providerSyncState.NextSyncAt), 0)
@@ -88,7 +88,7 @@ func (m Model) scheduleActiveProviderPollCmd() tea.Cmd {
 
 func (m Model) completeActiveProviderTimerCmd(generation int64) tea.Cmd {
 	activeProvider := m.activeProvider
-	if activeProvider == nil {
+	if activeProvider == nil || !m.activeProviderSyncEnabled() {
 		return nil
 	}
 	ctx := m.ctx
@@ -107,7 +107,18 @@ func (m Model) statusProviderCount() int {
 }
 
 func (m Model) canSwitchProvider() bool {
-	return m.activeProvider != nil && len(m.providerCatalog) > 0
+	return m.activeProvider != nil && m.activeProviderSyncEnabled() && len(m.providerCatalog) > 0
+}
+
+func (m Model) activeProviderSyncEnabled() bool {
+	mode := m.reviewContext.Target.Mode
+	if mode == "" {
+		mode = m.request.DiffMode
+	}
+	if mode == "" {
+		mode = core.DiffModeBranch
+	}
+	return mode == core.DiffModeBranch
 }
 
 func (m *Model) applyActiveProviderState(state ActiveProviderState) {

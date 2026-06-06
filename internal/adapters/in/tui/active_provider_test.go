@@ -45,6 +45,17 @@ func (m *mockActiveProviderController) CompleteTimer(ctx context.Context, review
 }
 func (m *mockActiveProviderController) Close() error { return m.Called().Error(0) }
 
+func TestActiveProviderDoesNotStartOutsideBranchMode(t *testing.T) {
+	controller := &mockActiveProviderController{}
+	m := NewModelWithActiveProviderContext(context.Background(), nil, nil, nil, core.ReviewRequest{DiffMode: core.DiffModeUpstream}, nil, core.ReviewContext{Target: core.ReviewTargetMetadata{Mode: core.DiffModeUpstream}}, controller, nil)
+
+	cmd := m.Init()
+
+	require.Nil(t, cmd)
+	controller.AssertNotCalled(t, "Catalog", mock.Anything)
+	controller.AssertNotCalled(t, "Start", mock.Anything, mock.Anything)
+}
+
 func TestActiveProviderStartupLoadsOnlyActiveProviderState(t *testing.T) {
 	controller := &mockActiveProviderController{}
 	catalog := []ports.ReviewProviderDescriptor{{Key: "github", Label: "GitHub"}, {Key: "other", Label: "Other"}}

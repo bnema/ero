@@ -69,6 +69,9 @@ func (p githubProvider) Initialize(_ context.Context, req plugin.InitializeReque
 }
 
 func (p githubProvider) DetectContext(ctx context.Context, req plugin.DetectContextRequest) (plugin.DetectContextResult, error) {
+	if !isBranchReviewMode(req.Context) {
+		return plugin.DetectContextResult{Result: plugin.DetectionResult{Applicable: false, Reason: "GitHub PR sync is available in branch mode only"}}, nil
+	}
 	remotes := githubRemotes(req.Context.Repository.Remotes)
 	if len(remotes) == 0 {
 		return plugin.DetectContextResult{Result: plugin.DetectionResult{Applicable: false, Reason: "no GitHub remote detected"}}, nil
@@ -85,6 +88,9 @@ func (p githubProvider) DetectContext(ctx context.Context, req plugin.DetectCont
 }
 
 func (p githubProvider) LoadRemoteSnapshot(ctx context.Context, req plugin.LoadRemoteSnapshotRequest) (plugin.LoadRemoteSnapshotResult, error) {
+	if !isBranchReviewMode(req.Context) {
+		return plugin.LoadRemoteSnapshotResult{}, plugin.NewError(plugin.ErrorNotApplicable, "GitHub PR sync is available in branch mode only")
+	}
 	remotes := githubRemotes(req.Context.Repository.Remotes)
 	if len(remotes) == 0 {
 		return plugin.LoadRemoteSnapshotResult{}, plugin.NewError(plugin.ErrorNotApplicable, "no GitHub remote detected")
@@ -194,6 +200,11 @@ func ghPRViewArgs(reviewCtx plugin.ReviewContext) []string {
 		args = append(args, branch)
 	}
 	return args
+}
+
+func isBranchReviewMode(reviewCtx plugin.ReviewContext) bool {
+	mode := reviewCtx.Target.Mode
+	return mode == "" || strings.EqualFold(mode, "branch")
 }
 
 func publishPRLookupBranch(reviewCtx plugin.ReviewContext) string {
