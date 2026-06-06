@@ -46,7 +46,7 @@ func (c StatusBar) Render(model StatusModel) string {
 		{style: theme.StatusModeStyle, label: model.Mode},
 		{style: theme.StatusInfoStyle, label: fileCountLabel(model.FileCount)},
 	}
-	if model.ProviderCount > 0 {
+	if model.ProviderCount > 0 && (strings.TrimSpace(model.ActiveProviderLabel) == "" || !model.NerdFont) {
 		segments = append(segments, statusSegment{style: theme.StatusInfoStyle, label: providerCountLabel(model.ProviderCount)})
 	}
 	if syncLabel := providerSyncLabel(model); syncLabel != "" {
@@ -86,7 +86,7 @@ type KeyHint struct {
 func renderStatusHint(width, providerCount int) string {
 	hints := []KeyHint{{Key: "?", Label: "help"}}
 	if providerCount > 0 {
-		hints = []KeyHint{{Key: "P", Label: "publish"}, {Key: "?", Label: "help"}}
+		hints = []KeyHint{{Key: "p", Label: "provider"}, {Key: "P", Label: "publish"}, {Key: "?", Label: "help"}}
 	}
 	full := RenderKeyHints(hints)
 	if lipgloss.Width(full) <= width {
@@ -94,7 +94,7 @@ func renderStatusHint(width, providerCount int) string {
 	}
 	fallback := "? help"
 	if providerCount > 0 {
-		fallback = "P publish"
+		fallback = "p provider"
 	}
 	return theme.StatusInfoStyle.Render(TruncateRunes(fallback, max(width-theme.StatusInfoStyle.GetHorizontalPadding(), 0)))
 }
@@ -152,11 +152,11 @@ func providerSyncLabel(model StatusModel) string {
 	}
 
 	parts := []string{provider}
+	if model.NerdFont {
+		parts = []string{compactProviderLabel(provider, model.ProviderCount, model.ProviderSync.Status)}
+	}
 	status := providerSyncStatusLabel(model.ProviderSync.Status)
-	if status != "" {
-		if model.NerdFont {
-			status = providerSyncStatusSymbol(model.ProviderSync.Status)
-		}
+	if status != "" && !model.NerdFont {
 		parts = append(parts, status)
 	}
 	if model.ProviderSync.LastError != "" {
@@ -176,6 +176,61 @@ func draftCommentCountLabel(count int) string {
 		return "1 draft comment"
 	}
 	return fmt.Sprintf("%d draft comments", count)
+}
+
+func compactProviderLabel(provider string, providerCount int, status core.ProviderSyncStatus) string {
+	label := providerGlyph(provider) + providerStatusDot(status)
+	if providerCount > 1 {
+		label += fmt.Sprintf(" +%d", providerCount-1)
+	}
+	return label
+}
+
+func providerGlyph(provider string) string {
+	provider = strings.ToLower(strings.TrimSpace(provider))
+	if strings.Contains(provider, "github") {
+		return ""
+	}
+	return providerAbbreviation(provider)
+}
+
+func providerStatusDot(status core.ProviderSyncStatus) string {
+	color := lipgloss.Color("81")
+	switch status {
+	case core.ProviderSyncStatusSynced:
+		color = lipgloss.Color("#3fb950")
+	case core.ProviderSyncStatusFailed:
+		color = lipgloss.Color("#ff7b72")
+	case core.ProviderSyncStatusBackingOff:
+		color = lipgloss.Color("#ffa657")
+	case core.ProviderSyncStatusLoadingCache, core.ProviderSyncStatusSyncing:
+		color = lipgloss.Color("#58a6ff")
+	}
+	return theme.StatusBaseStyle.Foreground(color).Render("●")
+}
+
+func providerAbbreviation(provider string) string {
+	provider = strings.ToLower(strings.TrimSpace(provider))
+	if provider == "" {
+		return "?"
+	}
+	switch {
+	case strings.Contains(provider, "github"):
+		return "gh"
+	case strings.Contains(provider, "gitlab"):
+		return "gl"
+	case strings.Contains(provider, "bitbucket"):
+		return "bb"
+	case strings.Contains(provider, "forgejo"):
+		return "fj"
+	case strings.Contains(provider, "gitea"):
+		return "gt"
+	}
+	runes := []rune(provider)
+	if len(runes) > 2 {
+		runes = runes[:2]
+	}
+	return string(runes)
 }
 
 func providerSyncStatusLabel(status core.ProviderSyncStatus) string {

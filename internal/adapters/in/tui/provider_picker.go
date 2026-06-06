@@ -45,7 +45,7 @@ func (m Model) closeProviderPicker() Model {
 }
 
 func (m Model) updateProviderPicker(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
-	switch msg.String() {
+	switch msg.Keystroke() {
 	case "esc":
 		return m.closeProviderPicker(), nil
 	case "up", "k":
@@ -61,6 +61,9 @@ func (m Model) updateProviderPicker(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		key := m.providerPicker.rows[m.providerPicker.selected].Key
 		m = m.closeProviderPicker()
 		return m, m.switchActiveProviderCmd(key)
+	case "alt+p":
+		m = m.closeProviderPicker()
+		return m, m.cycleProviderCmd()
 	default:
 		return m, nil
 	}
@@ -133,7 +136,7 @@ func (m Model) renderProviderPicker(width, height int) string {
 	paneWidth := min(max(width-8, 36), 76)
 	// Account for pane padding/chrome while preserving at least one content column.
 	contentWidth := max(paneWidth-6, 1)
-	lines := []string{theme.HelpPaneTitleStyle.Render("Review providers"), ""}
+	lines := []string{theme.HelpPaneTitleStyle.Render("Provider"), theme.MutedStyle.Render("Active publish destination"), ""}
 	rows := m.providerPicker.rows
 	if len(rows) == 0 {
 		lines = append(lines, theme.MutedStyle.Render("No providers discovered"))
@@ -141,14 +144,16 @@ func (m Model) renderProviderPicker(width, height int) string {
 		for i, row := range rows {
 			cursor := "  "
 			if i == m.providerPicker.selected {
-				cursor = "> "
+				cursor = "› "
 			}
-			active := " "
+			state := "available"
+			marker := "○"
 			if row.Active {
-				active = "*"
+				state = "active"
+				marker = "●"
 			}
 			meta := strings.TrimSpace(strings.Join([]string{row.PluginName, row.PluginSource}, " "))
-			line := fmt.Sprintf("%s%s %s", cursor, active, row.Label)
+			line := fmt.Sprintf("%s%s %-12s %s", cursor, marker, row.Label, state)
 			if meta != "" {
 				line += " — " + meta
 			}
@@ -158,7 +163,7 @@ func (m Model) renderProviderPicker(width, height int) string {
 			lines = append(lines, theme.HelpLabelStyle.Render(componentTruncate(line, contentWidth)))
 		}
 	}
-	lines = append(lines, "", theme.HelpLabelStyle.Render("enter switch • esc close"))
+	lines = append(lines, "", theme.HelpLabelStyle.Render("enter switch • alt+p cycle • esc close"))
 	lines = fitProviderPickerLines(lines, max(height-2, 1))
 	return theme.HelpPaneStyle.Width(paneWidth).Render(strings.Join(lines, "\n"))
 }

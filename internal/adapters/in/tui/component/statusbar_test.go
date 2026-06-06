@@ -67,20 +67,20 @@ func TestStatusbarProviderSync(t *testing.T) {
 	}
 }
 
-func TestStatusbarProviderSyncUsesNerdFontSymbolWhenSupported(t *testing.T) {
-	for status, symbol := range map[core.ProviderSyncStatus]string{
-		core.ProviderSyncStatusLoadingCache: "󰃨",
-		core.ProviderSyncStatusSyncing:      "󰑓",
-		core.ProviderSyncStatusSynced:       "",
-		core.ProviderSyncStatusFailed:       "",
-		core.ProviderSyncStatusBackingOff:   "󰌾",
+func TestStatusbarProviderSyncUsesNerdFontProviderGlyphAndStatusDot(t *testing.T) {
+	for _, status := range []core.ProviderSyncStatus{
+		core.ProviderSyncStatusLoadingCache,
+		core.ProviderSyncStatusSyncing,
+		core.ProviderSyncStatusSynced,
+		core.ProviderSyncStatusFailed,
+		core.ProviderSyncStatusBackingOff,
 	} {
 		model := syncStatusModel("GitHub", "gh-runtime", core.ProviderSyncState{Status: status})
 		model.NerdFont = true
 
 		view := stripANSIForStatusbarTest(NewStatusBar(120).Render(model))
 
-		require.Contains(t, view, symbol)
+		require.Contains(t, view, "●")
 	}
 }
 
@@ -90,9 +90,22 @@ func TestStatusbarProviderSyncOmitsStatusWordWhenNerdFontSymbolIsShown(t *testin
 
 	view := stripANSIForStatusbarTest(NewStatusBar(120).Render(model))
 
-	require.Contains(t, view, "GitHub/github")
-	require.Contains(t, view, "")
+	require.Contains(t, view, "●")
+	require.NotContains(t, view, "")
 	require.NotContains(t, view, "synced")
+}
+
+func TestStatusbarShowsCompactActiveProviderAndAdditionalCount(t *testing.T) {
+	model := syncStatusModel("GitHub", "github", core.ProviderSyncState{Status: core.ProviderSyncStatusSynced})
+	model.ProviderCount = 2
+	model.NerdFont = true
+
+	view := stripANSIForStatusbarTest(NewStatusBar(120).Render(model))
+
+	require.Contains(t, view, "● +1")
+	require.NotContains(t, view, "2 providers")
+	require.Contains(t, view, "p provider")
+	require.Contains(t, view, "P publish")
 }
 
 func TestStatusbarShowsDraftCommentCount(t *testing.T) {

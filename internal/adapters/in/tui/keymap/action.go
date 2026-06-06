@@ -57,13 +57,13 @@ func ReviewAction(key string) Action {
 		return ActionOpenComment
 	case "x":
 		return ActionClearReview
-	case "P":
+	case "P", "shift+p":
 		return ActionPublishReview
-	case "C":
+	case "C", "shift+c":
 		return ActionCopyReviewJSON
 	case "y":
 		return ActionCopyPlain
-	case "Y":
+	case "Y", "shift+y":
 		return ActionCopyWithMetadata
 	case "f":
 		return ActionOpenFileSearch
@@ -71,23 +71,23 @@ func ReviewAction(key string) Action {
 		return ActionOpenGrepSearch
 	case "d":
 		return ActionOpenDiffMode
-	case "left", "h", "p":
+	case "left", "h":
 		return ActionPreviousFile
-	case "right", "l", "n":
+	case "right", "l":
 		return ActionNextFile
 	case "a":
 		return ActionExpandAllContext
 	case "enter":
 		return ActionExpandMoreContext
-	case "g":
+	case "alt+p":
 		return ActionCycleProvider
-	case "G":
+	case "p":
 		return ActionOpenProviderPicker
 	case "r":
 		return ActionRefreshProvider
 	case "o":
 		return ActionTogglePRSheet
-	case "?":
+	case "?", "shift+/":
 		return ActionOpenHelp
 	default:
 		return ActionNone

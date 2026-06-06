@@ -19,7 +19,7 @@ func TestUppercasePOpensPublishOverlayWithProvider(t *testing.T) {
 	m := NewModelWithReviewProviders([]core.ReviewFile{reviewFile("demo.go", "package main")}, nil, nil, core.ReviewRequest{}, nil, core.ReviewContext{}, nil)
 	attachProviderClient(&m, provider, info)
 
-	updated, cmd := m.Update(keyPress("P"))
+	updated, cmd := m.Update(tea.KeyPressMsg{Text: "P", Code: 'p', Mod: tea.ModShift})
 	m = updated.(Model)
 
 	require.Nil(t, cmd)

@@ -346,7 +346,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if m.publish.active {
 			return m.updatePublishReview(msg)
 		}
-		return m.updateReviewAction(keymap.ReviewAction(msg.String()))
+		return m.updateReviewAction(keymap.ReviewAction(msg.Keystroke()))
 	default:
 		return m, nil
 	}
