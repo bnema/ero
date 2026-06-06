@@ -17,6 +17,7 @@ type StatusModel struct {
 	Mode                string
 	FileCount           int
 	ProviderCount       int
+	ProviderSwitch      bool
 	CurrentFile         string
 	Message             string
 	ScrollPercent       float64
@@ -38,7 +39,7 @@ func NewStatusBar(width int) StatusBar {
 
 func (c StatusBar) Render(model StatusModel) string {
 	width := max(c.width, 1)
-	right := renderStatusHint(width, model.ProviderCount)
+	right := renderStatusHint(width, model.ProviderCount, model.ProviderSwitch)
 	leftWidth := max(width-lipgloss.Width(right)-1, 0)
 
 	segments := []statusSegment{
@@ -83,10 +84,13 @@ type KeyHint struct {
 	Label string
 }
 
-func renderStatusHint(width, providerCount int) string {
+func renderStatusHint(width, providerCount int, providerSwitch bool) string {
 	hints := []KeyHint{{Key: "?", Label: "help"}}
 	if providerCount > 0 {
-		hints = []KeyHint{{Key: "p", Label: "provider"}, {Key: "P", Label: "publish"}, {Key: "?", Label: "help"}}
+		hints = []KeyHint{{Key: "P", Label: "publish"}, {Key: "?", Label: "help"}}
+		if providerSwitch {
+			hints = []KeyHint{{Key: "p", Label: "provider"}, {Key: "P", Label: "publish"}, {Key: "?", Label: "help"}}
+		}
 	}
 	full := RenderKeyHints(hints)
 	if lipgloss.Width(full) <= width {
@@ -94,7 +98,10 @@ func renderStatusHint(width, providerCount int) string {
 	}
 	fallback := "? help"
 	if providerCount > 0 {
-		fallback = "p provider"
+		fallback = "P publish"
+		if providerSwitch {
+			fallback = "p provider"
+		}
 	}
 	return theme.StatusInfoStyle.Render(TruncateRunes(fallback, max(width-theme.StatusInfoStyle.GetHorizontalPadding(), 0)))
 }
@@ -247,23 +254,6 @@ func providerSyncStatusLabel(status core.ProviderSyncStatus) string {
 		return "backoff"
 	default:
 		return ""
-	}
-}
-
-func providerSyncStatusSymbol(status core.ProviderSyncStatus) string {
-	switch status {
-	case core.ProviderSyncStatusLoadingCache:
-		return "󰃨"
-	case core.ProviderSyncStatusSyncing:
-		return "󰑓"
-	case core.ProviderSyncStatusSynced:
-		return ""
-	case core.ProviderSyncStatusFailed:
-		return ""
-	case core.ProviderSyncStatusBackingOff:
-		return "󰌾"
-	default:
-		return "󰓦"
 	}
 }
 

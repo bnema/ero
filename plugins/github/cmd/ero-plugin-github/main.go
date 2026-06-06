@@ -69,19 +69,15 @@ func (p githubProvider) Initialize(_ context.Context, req plugin.InitializeReque
 }
 
 func (p githubProvider) DetectContext(ctx context.Context, req plugin.DetectContextRequest) (plugin.DetectContextResult, error) {
-	remote, ok := firstGitHubRemote(req.Context.Repository.Remotes)
-	if !ok {
+	remotes := githubRemotes(req.Context.Repository.Remotes)
+	if len(remotes) == 0 {
 		return plugin.DetectContextResult{Result: plugin.DetectionResult{Applicable: false, Reason: "no GitHub remote detected"}}, nil
 	}
 	client, err := p.graphQLClient()
 	if err != nil {
 		return plugin.DetectContextResult{}, plugin.NewErrorf(plugin.ErrorAuthRequired, "create GitHub GraphQL client: %v", err)
 	}
-	candidates, err := fetchGitHubPRCandidates(ctx, client, remote)
-	if err != nil {
-		return plugin.DetectContextResult{}, err
-	}
-	match, err := matchGitHubPR(req.Context, candidates)
+	_, match, err := matchGitHubPRAcrossRemotes(ctx, client, remotes, req.Context)
 	if err != nil {
 		return plugin.DetectContextResult{Result: plugin.DetectionResult{Applicable: false, Reason: err.Error()}}, nil
 	}
@@ -89,15 +85,19 @@ func (p githubProvider) DetectContext(ctx context.Context, req plugin.DetectCont
 }
 
 func (p githubProvider) LoadRemoteSnapshot(ctx context.Context, req plugin.LoadRemoteSnapshotRequest) (plugin.LoadRemoteSnapshotResult, error) {
-	remote, ok := firstGitHubRemote(req.Context.Repository.Remotes)
-	if !ok {
+	remotes := githubRemotes(req.Context.Repository.Remotes)
+	if len(remotes) == 0 {
 		return plugin.LoadRemoteSnapshotResult{}, plugin.NewError(plugin.ErrorNotApplicable, "no GitHub remote detected")
 	}
 	client, err := p.graphQLClient()
 	if err != nil {
 		return plugin.LoadRemoteSnapshotResult{}, plugin.NewErrorf(plugin.ErrorAuthRequired, "create GitHub GraphQL client: %v", err)
 	}
-	snapshot, err := fetchGitHubSnapshot(ctx, client, remote, req.Context)
+	remote, match, err := matchGitHubPRAcrossRemotes(ctx, client, remotes, req.Context)
+	if err != nil {
+		return plugin.LoadRemoteSnapshotResult{}, err
+	}
+	snapshot, err := fetchGitHubPRSnapshot(ctx, client, remote, match.Number)
 	if err != nil {
 		return plugin.LoadRemoteSnapshotResult{}, err
 	}
@@ -152,17 +152,15 @@ func (p githubProvider) PublishReview(ctx context.Context, req plugin.PublishRev
 }
 
 func (p githubProvider) currentPullRequest(ctx context.Context, reviewCtx plugin.ReviewContext) (ghPR, error) {
-	if remote, ok := firstGitHubRemote(reviewCtx.Repository.Remotes); ok {
+	if remotes := githubRemotes(reviewCtx.Repository.Remotes); len(remotes) > 0 {
 		if client, err := p.graphQLClient(); err == nil {
-			candidates, err := fetchGitHubPRCandidates(ctx, client, remote)
-			if err != nil {
+			_, match, err := matchGitHubPRAcrossRemotes(ctx, client, remotes, reviewCtx)
+			if err == nil {
+				return ghPR{Number: match.Number, URL: match.URL}, nil
+			}
+			if pe := plugin.AsError(err); pe == nil || pe.Code != plugin.ErrorNotApplicable {
 				return ghPR{}, err
 			}
-			match, err := matchGitHubPR(reviewCtx, candidates)
-			if err != nil {
-				return ghPR{}, err
-			}
-			return ghPR{Number: match.Number, URL: match.URL}, nil
 		}
 	}
 	if p.execGH == nil {

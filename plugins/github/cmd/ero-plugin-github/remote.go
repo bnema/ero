@@ -50,11 +50,20 @@ func cleanGitHubRepo(owner, repo string) (githubRemote, bool) {
 	return githubRemote{Owner: owner, Name: repo}, true
 }
 
-func firstGitHubRemote(remotes []plugin.GitRemote) (githubRemote, bool) {
+func githubRemotes(remotes []plugin.GitRemote) []githubRemote {
+	out := make([]githubRemote, 0, len(remotes))
+	seen := map[string]bool{}
 	for _, remote := range remotes {
-		if parsed, ok := parseGitHubRemote(remote.URL); ok {
-			return parsed, true
+		parsed, ok := parseGitHubRemote(remote.URL)
+		if !ok {
+			continue
 		}
+		key := strings.ToLower(parsed.Owner + "/" + parsed.Name)
+		if seen[key] {
+			continue
+		}
+		seen[key] = true
+		out = append(out, parsed)
 	}
-	return githubRemote{}, false
+	return out
 }

@@ -76,8 +76,6 @@ type ReviewProviderClientFactory interface {
 
 // ReviewProviderLoader builds provider clients from installed plugin sources.
 type ReviewProviderLoader interface {
-	ReviewProviderCatalog
-	ReviewProviderClientFactory
 	LoadReviewProviders(ctx context.Context) ([]ReviewProviderClient, error)
 }
 
@@ -105,4 +103,10 @@ type ReviewProviderClient interface {
 	LoadRemoteThreads(ctx context.Context, review core.ReviewContext) ([]core.RemoteReviewThread, error)
 	PublishReview(ctx context.Context, request core.PublishReviewRequest) (core.PublishReviewResult, error)
 	Close() error
+}
+
+// ReviewProviderSnapshotClient is implemented by providers that can load a
+// normalized PR/provider snapshot in one call instead of remote threads only.
+type ReviewProviderSnapshotClient interface {
+	LoadRemoteSnapshot(ctx context.Context, review core.ReviewContext) (core.ProviderSnapshot, error)
 }

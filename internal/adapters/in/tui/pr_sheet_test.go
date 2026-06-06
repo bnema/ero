@@ -77,6 +77,21 @@ func TestPRSheetCanToggleByMethodAndMessage(t *testing.T) {
 	assert.False(t, model.prSheet.open)
 }
 
+func TestPRSheetKeyboardAndWheelScrollSheetNotReview(t *testing.T) {
+	model := NewModel([]core.ReviewFile{reviewFileWithLines("demo.go", 30)})
+	updated, _ := model.Update(tea.WindowSizeMsg{Width: 80, Height: 4})
+	model = updated.(Model).TogglePRSheet()
+	reviewOffset := model.reviewViewport.YOffset()
+
+	updated, _ = model.Update(keyPress("j"))
+	model = updated.(Model)
+	updated, _ = model.Update(tea.MouseWheelMsg(tea.Mouse{Button: tea.MouseWheelDown}))
+	model = updated.(Model)
+
+	assert.Equal(t, 2, model.prSheet.yOffset)
+	assert.Equal(t, reviewOffset, model.reviewViewport.YOffset())
+}
+
 func TestPRSheetHasIndependentScrollState(t *testing.T) {
 	t.Parallel()
 

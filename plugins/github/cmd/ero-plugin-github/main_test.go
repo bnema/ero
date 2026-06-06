@@ -108,6 +108,12 @@ func TestGitHubPRMatching(t *testing.T) {
 			wantNumber: 4,
 		},
 		{
+			name:       "HEAD pseudo ref falls through to exact head SHA",
+			ctx:        plugin.ReviewContext{Repository: plugin.RepositoryMetadata{DefaultBranch: "main"}, Target: plugin.ReviewTargetMetadata{Mode: "range", HeadRef: "HEAD", HeadSHA: "def456"}},
+			prs:        []githubPRCandidate{{Number: 9, BaseRef: "main", HeadRef: "feature", HeadSHA: "def456"}},
+			wantNumber: 9,
+		},
+		{
 			name:    "ambiguous multiple matches returns not applicable",
 			ctx:     plugin.ReviewContext{Repository: plugin.RepositoryMetadata{CurrentBranch: "feature", DefaultBranch: "main"}, Target: plugin.ReviewTargetMetadata{Mode: "branch"}},
 			prs:     []githubPRCandidate{{Number: 5, BaseRef: "main", HeadRef: "feature"}, {Number: 6, BaseRef: "main", HeadRef: "feature"}},
@@ -177,6 +183,49 @@ func TestPublishReviewRejectsMalformedGitHubReviewResponse(t *testing.T) {
 	_, err := provider.PublishReview(context.Background(), plugin.PublishReviewParams{})
 	if plugin.AsError(err) == nil || plugin.AsError(err).Code != plugin.ErrorRemoteValidationFailed {
 		t.Fatalf("expected remote_validation_failed, got %v", err)
+	}
+}
+
+func TestPublishReviewFallsBackToGHCLIWhenGraphQLHasNoMatch(t *testing.T) {
+	list := ghPRListResponse{}
+	list.Repository.PullRequests.Nodes = []ghPRNode{{Number: 88, URL: "https://github.com/owner/repo/pull/88", BaseRefName: "main", HeadRefName: "other"}}
+	var calls [][]string
+	provider := githubProvider{
+		newGraphQLClient: func() (graphQLDoer, error) { return &fakeGraphQLClient{listPages: []ghPRListResponse{list}}, nil },
+		execGH: func(_ context.Context, args ...string) (string, string, error) {
+			calls = append(calls, slices.Clone(args))
+			if len(calls) == 1 {
+				return `{"number": 12, "url": "https://github.com/owner/repo/pull/12"}`, "", nil
+			}
+			return `{"id": 99, "html_url": "https://github.com/owner/repo/pull/12#pullrequestreview-99"}`, "", nil
+		},
+	}
+
+	_, err := provider.PublishReview(context.Background(), plugin.PublishReviewParams{Payload: plugin.ReviewPublishPayload{Context: plugin.ReviewContext{Repository: plugin.RepositoryMetadata{Remotes: []plugin.GitRemote{{URL: "git@github.com:owner/repo.git"}}, CurrentBranch: "feature", DefaultBranch: "main"}, Target: plugin.ReviewTargetMetadata{Mode: "branch"}}, Draft: plugin.ReviewDraftSnapshot{Summary: "summary"}}})
+	if err != nil {
+		t.Fatalf("PublishReview returned error: %v", err)
+	}
+	if len(calls) != 2 || !strings.Contains(strings.Join(calls[0], "\x00"), "pr\x00view") {
+		t.Fatalf("expected gh pr view fallback then publish, got %#v", calls)
+	}
+}
+
+func TestLoadRemoteSnapshotSearchesAllGitHubRemotes(t *testing.T) {
+	forkList := ghPRListResponse{}
+	forkList.Repository.PullRequests.Nodes = []ghPRNode{{Number: 1, BaseRefName: "main", HeadRefName: "other"}}
+	upstreamList := ghPRListResponse{}
+	upstreamList.Repository.PullRequests.Nodes = []ghPRNode{{Number: 2, BaseRefName: "main", HeadRefName: "feature"}}
+	snapshot := ghPRSnapshotResponse{}
+	snapshot.Repository.PullRequest = ghPRNode{Number: 2, URL: "https://github.com/upstream/repo/pull/2", Title: "PR", BaseRefName: "main", HeadRefName: "feature"}
+	fake := &fakeGraphQLClient{listPages: []ghPRListResponse{forkList, upstreamList}, snapshotPages: []ghPRSnapshotResponse{snapshot}}
+	provider := githubProvider{newGraphQLClient: func() (graphQLDoer, error) { return fake, nil }}
+
+	got, err := provider.LoadRemoteSnapshot(context.Background(), plugin.LoadRemoteSnapshotRequest{Context: plugin.ReviewContext{Repository: plugin.RepositoryMetadata{Remotes: []plugin.GitRemote{{Name: "origin", URL: "git@github.com:fork/repo.git"}, {Name: "upstream", URL: "git@github.com:upstream/repo.git"}}, CurrentBranch: "feature", DefaultBranch: "main"}, Target: plugin.ReviewTargetMetadata{Mode: "branch"}}})
+	if err != nil {
+		t.Fatalf("LoadRemoteSnapshot returned error: %v", err)
+	}
+	if fake.listCalls != 2 || got.Overview == nil || got.Overview.Number != 2 {
+		t.Fatalf("expected upstream PR match, calls=%d snapshot=%#v", fake.listCalls, got.Overview)
 	}
 }
 

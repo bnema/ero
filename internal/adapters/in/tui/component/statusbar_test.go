@@ -98,6 +98,7 @@ func TestStatusbarProviderSyncOmitsStatusWordWhenNerdFontSymbolIsShown(t *testin
 func TestStatusbarShowsCompactActiveProviderAndAdditionalCount(t *testing.T) {
 	model := syncStatusModel("GitHub", "github", core.ProviderSyncState{Status: core.ProviderSyncStatusSynced})
 	model.ProviderCount = 2
+	model.ProviderSwitch = true
 	model.NerdFont = true
 
 	view := stripANSIForStatusbarTest(NewStatusBar(120).Render(model))

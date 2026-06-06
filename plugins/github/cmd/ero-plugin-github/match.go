@@ -46,6 +46,9 @@ func githubPRMatches(ctx plugin.ReviewContext, pr githubPRCandidate) bool {
 
 	headSHA := firstNonEmpty(ctx.Target.HeadSHA, ctx.Repository.HeadSHA)
 	headRef := strings.TrimSpace(ctx.Target.HeadRef)
+	if nonBranchHeadRef(headRef) {
+		headRef = ""
+	}
 	if headRef == "" && strings.EqualFold(ctx.Target.Mode, "branch") {
 		headRef = strings.TrimSpace(ctx.Repository.CurrentBranch)
 	}
@@ -60,6 +63,26 @@ func githubPRMatches(ctx plugin.ReviewContext, pr githubPRCandidate) bool {
 	}
 
 	return headSHA != "" && pr.HeadSHA != "" && strings.EqualFold(pr.HeadSHA, headSHA)
+}
+
+func nonBranchHeadRef(ref string) bool {
+	ref = strings.TrimSpace(ref)
+	if ref == "" {
+		return false
+	}
+	if strings.EqualFold(ref, "HEAD") || strings.Contains(ref, "..") {
+		return true
+	}
+	trimmed := strings.TrimPrefix(strings.ToLower(ref), "refs/heads/")
+	if len(trimmed) < 7 || len(trimmed) > 40 {
+		return false
+	}
+	for _, r := range trimmed {
+		if (r < '0' || r > '9') && (r < 'a' || r > 'f') {
+			return false
+		}
+	}
+	return true
 }
 
 func refEqual(a, b string) bool {

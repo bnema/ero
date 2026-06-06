@@ -29,10 +29,6 @@ type ActiveProviderState struct {
 	NextSyncAt        time.Time
 }
 
-type remoteSnapshotLoader interface {
-	LoadRemoteSnapshot(ctx context.Context, review core.ReviewContext) (core.ProviderSnapshot, error)
-}
-
 type ActiveProviderService struct {
 	catalog ports.ReviewProviderCatalog
 	factory ports.ReviewProviderClientFactory
@@ -69,6 +65,7 @@ func (s *ActiveProviderService) Start(ctx context.Context, review core.ReviewCon
 		log.Warn().Err(err).Msg("active provider catalog load failed")
 		return ActiveProviderState{}, err
 	}
+	preferredKey, hasPreference := s.preferredProviderKey(ctx, review)
 	ordered := s.orderCandidates(ctx, descs, review)
 	log.Info().Int("descriptor_count", len(descs)).Int("candidate_count", len(ordered)).Str("repo", core.RepositoryIdentity(review.Repository)).Msg("active provider start")
 	s.mu.Lock()
@@ -101,17 +98,26 @@ func (s *ActiveProviderService) Start(ctx context.Context, review core.ReviewCon
 		gen := s.generation
 		s.backoff = 0
 		s.mu.Unlock()
-		if s.prefs != nil {
-			_ = s.prefs.SaveActiveProviderKey(ctx, core.RepositoryIdentity(review.Repository), d.Key)
+		if s.prefs != nil && (!hasPreference || preferredKey == d.Key) {
+			if err := s.prefs.SaveActiveProviderKey(ctx, core.RepositoryIdentity(review.Repository), d.Key); err != nil {
+				log.Warn().Err(err).Str("provider_key", d.Key).Msg("active provider preference save failed")
+			}
 		}
 		st := s.loadCachedState(ctx, review, d.Key, info.ID, info)
 		log.Info().Str("provider_key", d.Key).Str("runtime_provider_id", info.ID).Bool("from_cache", st.FromCache).Int("remote_thread_count", len(st.Snapshot.Threads)).Msg("active provider selected")
-		s.setState(gen, st)
+		if !s.setState(gen, st) {
+			return s.State(), nil
+		}
 		return st, nil
+	}
+	if lastErr == nil {
+		lastErr = core.NewProviderError(core.ProviderErrorNotApplicable, "no applicable provider found", nil)
 	}
 	log.Warn().Err(lastErr).Msg("active provider start found no applicable provider")
 	failed := failedProviderState(lastErr)
-	s.setState(startGen, failed)
+	if !s.setState(startGen, failed) {
+		return s.State(), nil
+	}
 	return failed, lastErr
 }
 
@@ -139,7 +145,9 @@ func (s *ActiveProviderService) Switch(ctx context.Context, review core.ReviewCo
 			if err != nil {
 				log.Warn().Err(err).Str("provider_key", stableKey).Msg("active provider switch probe failed")
 				failed := failedProviderState(err)
-				s.setState(switchGen, failed)
+				if !s.setState(switchGen, failed) {
+					return s.State(), nil
+				}
 				return failed, err
 			}
 			s.mu.Lock()
@@ -154,11 +162,15 @@ func (s *ActiveProviderService) Switch(ctx context.Context, review core.ReviewCo
 			s.backoff = 0
 			s.mu.Unlock()
 			if s.prefs != nil {
-				_ = s.prefs.SaveActiveProviderKey(ctx, core.RepositoryIdentity(review.Repository), d.Key)
+				if err := s.prefs.SaveActiveProviderKey(ctx, core.RepositoryIdentity(review.Repository), d.Key); err != nil {
+					log.Warn().Err(err).Str("provider_key", d.Key).Msg("active provider preference save failed")
+				}
 			}
 			st := s.loadCachedState(ctx, review, d.Key, info.ID, info)
 			log.Info().Str("provider_key", d.Key).Str("runtime_provider_id", info.ID).Bool("from_cache", st.FromCache).Int("remote_thread_count", len(st.Snapshot.Threads)).Msg("active provider switch complete")
-			s.setState(gen, st)
+			if !s.setState(gen, st) {
+				return s.State(), nil
+			}
 			return st, nil
 		}
 	}
@@ -200,7 +212,7 @@ func (s *ActiveProviderService) Refresh(ctx context.Context, review core.ReviewC
 	log.Info().Str("provider_key", key).Str("runtime_provider_id", runtimeID).Bool("manual", manual).Msg("active provider refresh start")
 	var snap core.ProviderSnapshot
 	var err error
-	if loader, ok := client.(remoteSnapshotLoader); ok {
+	if loader, ok := client.(ports.ReviewProviderSnapshotClient); ok {
 		log.Debug().Str("provider_key", key).Msg("active provider loading remote snapshot")
 		snap, err = loader.LoadRemoteSnapshot(ctx, review)
 	} else {
@@ -210,6 +222,9 @@ func (s *ActiveProviderService) Refresh(ctx context.Context, review core.ReviewC
 		snap.Threads = threads
 	}
 	if err != nil {
+		if st, stale := s.stateIfGenerationChanged(gen); stale {
+			return st, nil
+		}
 		st := prev
 		st.LastError = err
 		st.Syncing = false
@@ -224,11 +239,16 @@ func (s *ActiveProviderService) Refresh(ctx context.Context, review core.ReviewC
 			st.Snapshot.Sync.NextSyncAt = new(st.NextSyncAt)
 			log.Warn().Err(err).Str("provider_key", key).Str("runtime_provider_id", runtimeID).Bool("manual", manual).Time("next_sync_at", st.NextSyncAt).Msg("active provider refresh backing off")
 		}
-		s.setState(gen, st)
+		if !s.setState(gen, st) {
+			return s.State(), nil
+		}
 		return st, err
 	}
 	now := time.Now().UTC()
 	next := now.Add(s.poll.Interval)
+	if st, stale := s.stateIfGenerationChanged(gen); stale {
+		return st, nil
+	}
 	if snap.RuntimeProviderID == "" {
 		snap.RuntimeProviderID = runtimeID
 	}
@@ -239,11 +259,15 @@ func (s *ActiveProviderService) Refresh(ctx context.Context, review core.ReviewC
 	}
 	snap.Sync = core.ProviderSyncState{Status: core.ProviderSyncStatusSynced, LastSyncAt: new(now), NextSyncAt: new(next)}
 	if s.cache != nil {
-		_ = s.cache.SaveProviderSnapshot(ctx, snap)
+		if err := s.cache.SaveProviderSnapshot(ctx, snap); err != nil {
+			log.Warn().Err(err).Str("provider_key", key).Msg("active provider cache save failed")
+		}
 	}
 	log.Info().Str("provider_key", key).Str("runtime_provider_id", snap.RuntimeProviderID).Bool("manual", manual).Int("remote_thread_count", len(snap.Threads)).Bool("has_overview", snap.Overview != nil).Time("next_sync_at", next).Msg("active provider refresh synced")
 	st := ActiveProviderState{StableProviderKey: key, RuntimeProviderID: runtimeID, RuntimeInfo: prev.RuntimeInfo, Snapshot: snap, NextSyncAt: next}
-	s.setState(gen, st)
+	if !s.setState(gen, st) {
+		return s.State(), nil
+	}
 	return st, nil
 }
 
@@ -269,7 +293,22 @@ func (s *ActiveProviderService) State() ActiveProviderState {
 func (s *ActiveProviderService) Close() error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	return s.closeLocked()
+	err := s.closeLocked()
+	s.clearActiveLocked()
+	return err
+}
+
+func (s *ActiveProviderService) preferredProviderKey(ctx context.Context, review core.ReviewContext) (string, bool) {
+	if s.prefs == nil {
+		return "", false
+	}
+	key, ok, err := s.prefs.LoadActiveProviderKey(ctx, core.RepositoryIdentity(review.Repository))
+	if err != nil {
+		log := zerowrap.FromCtx(ctx)
+		log.Warn().Err(err).Msg("active provider preference load failed")
+		return "", false
+	}
+	return key, ok
 }
 
 func (s *ActiveProviderService) orderCandidates(ctx context.Context, descs []ports.ReviewProviderDescriptor, review core.ReviewContext) []ports.ReviewProviderDescriptor {
@@ -277,7 +316,7 @@ func (s *ActiveProviderService) orderCandidates(ctx context.Context, descs []por
 	used := map[string]bool{}
 	preferenceFound := false
 	if s.prefs != nil {
-		if key, ok, _ := s.prefs.LoadActiveProviderKey(ctx, core.RepositoryIdentity(review.Repository)); ok {
+		if key, ok := s.preferredProviderKey(ctx, review); ok {
 			for _, d := range descs {
 				if d.Key == key {
 					out = append(out, d)
@@ -350,7 +389,9 @@ func (s *ActiveProviderService) loadCachedState(ctx context.Context, review core
 	}
 	if s.cache != nil {
 		contextKey := core.NewReviewContextKey(key, review)
-		if snap, ok, _ := s.cache.LoadProviderSnapshot(ctx, contextKey); ok {
+		if snap, ok, err := s.cache.LoadProviderSnapshot(ctx, contextKey); err != nil {
+			log.Warn().Err(err).Str("provider_key", key).Any("context_key", contextKey).Msg("active provider cache load failed")
+		} else if ok {
 			snap.Cached = true
 			st.Snapshot = snap
 			st.FromCache = true
@@ -364,12 +405,23 @@ func (s *ActiveProviderService) loadCachedState(ctx context.Context, review core
 	}
 	return st
 }
-func (s *ActiveProviderService) setState(gen int64, st ActiveProviderState) {
+func (s *ActiveProviderService) stateIfGenerationChanged(gen int64) (ActiveProviderState, bool) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	if gen == s.generation {
-		s.state = st
+		return ActiveProviderState{}, false
 	}
+	return s.state, true
+}
+
+func (s *ActiveProviderService) setState(gen int64, st ActiveProviderState) bool {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if gen != s.generation {
+		return false
+	}
+	s.state = st
+	return true
 }
 func (s *ActiveProviderService) nextBackoff(err error) time.Time {
 	s.mu.Lock()
@@ -394,6 +446,14 @@ func (s *ActiveProviderService) closeLocked() error {
 	err := s.client.Close()
 	s.client = nil
 	return err
+}
+
+func (s *ActiveProviderService) clearActiveLocked() {
+	s.stableKey = ""
+	s.runtimeID = ""
+	s.generation++
+	s.backoff = 0
+	s.state = ActiveProviderState{}
 }
 
 func failedProviderState(err error) ActiveProviderState {

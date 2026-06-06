@@ -346,6 +346,9 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if m.publish.active {
 			return m.updatePublishReview(msg)
 		}
+		if m.prSheet.open {
+			return m.updatePRSheetAction(msg)
+		}
 		return m.updateReviewAction(keymap.ReviewAction(msg.Keystroke()))
 	default:
 		return m, nil
@@ -358,13 +361,41 @@ func (m Model) updateMouseWheel(msg tea.MouseWheelMsg) (tea.Model, tea.Cmd) {
 	}
 	switch msg.Mouse().Button {
 	case tea.MouseWheelUp:
+		if m.prSheet.open {
+			return m.ScrollPRSheet(-1), nil
+		}
 		m.moveCursor(-1)
 	case tea.MouseWheelDown:
+		if m.prSheet.open {
+			return m.ScrollPRSheet(1), nil
+		}
 		m.moveCursor(1)
 	default:
 		return m, nil
 	}
 	return m, nil
+}
+
+func (m Model) updatePRSheetAction(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
+	switch keymap.ReviewAction(msg.Keystroke()) {
+	case keymap.ActionMoveUp:
+		return m.ScrollPRSheet(-1), nil
+	case keymap.ActionMoveDown:
+		return m.ScrollPRSheet(1), nil
+	case keymap.ActionPageUp:
+		return m.ScrollPRSheet(-max(m.height-1, 1)), nil
+	case keymap.ActionPageDown:
+		return m.ScrollPRSheet(max(m.height-1, 1)), nil
+	case keymap.ActionTogglePRSheet:
+		return m.TogglePRSheet(), nil
+	case keymap.ActionOpenHelp:
+		m.helpActive = true
+		return m, nil
+	case keymap.ActionQuit:
+		return m, tea.Batch(m.closeReviewProvidersCmd(), tea.Quit)
+	default:
+		return m, nil
+	}
 }
 
 func (m Model) updateReviewAction(action keymap.Action) (tea.Model, tea.Cmd) {
@@ -414,8 +445,14 @@ func (m Model) updateReviewAction(action keymap.Action) (tea.Model, tea.Cmd) {
 	case keymap.ActionExpandMoreContext:
 		m.showMoreContext(contextStep)
 	case keymap.ActionCycleProvider:
+		if !m.canSwitchProvider() {
+			return m, nil
+		}
 		return m, m.cycleProviderCmd()
 	case keymap.ActionOpenProviderPicker:
+		if !m.canSwitchProvider() {
+			return m, nil
+		}
 		m = m.openProviderPicker()
 	case keymap.ActionRefreshProvider:
 		return m, m.refreshActiveProviderCmd(true)
@@ -457,6 +494,7 @@ func (m Model) View() tea.View {
 			Mode:                diffModeLabel(m.diffMode, m.nerdFont),
 			FileCount:           len(m.files),
 			ProviderCount:       m.statusProviderCount(),
+			ProviderSwitch:      m.canSwitchProvider(),
 			CurrentFile:         m.activeLocation(),
 			Message:             m.copyFeedback,
 			ScrollPercent:       m.reviewViewport.ScrollPercent(),

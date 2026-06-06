@@ -130,11 +130,6 @@ func canonicalInstalledPluginIdentity(descriptor ports.PluginDescriptor) string 
 	return strings.Join([]string{"manifest", descriptor.Name, descriptor.Version, descriptor.Source}, ":")
 }
 
-func runtimeCommandAvailable(command, pluginDir string) bool {
-	_, ok := runtimeCommandInfo(command, pluginDir)
-	return ok
-}
-
 func runtimeCommandInfo(command, pluginDir string) (os.FileInfo, bool) {
 	if command == "" {
 		return nil, false

@@ -3,6 +3,7 @@ package app
 import (
 	"context"
 	"errors"
+	"sync"
 	"testing"
 	"time"
 
@@ -76,6 +77,84 @@ func TestActiveProviderServicePreferenceFallbackAndClosesFailedClients(t *testin
 	}
 	if st.StableProviderKey != "github" {
 		t.Fatalf("got %q", st.StableProviderKey)
+	}
+}
+
+func TestActiveProviderServiceStartWithoutCandidatesReturnsNotApplicable(t *testing.T) {
+	svc := NewActiveProviderService(mockCatalog(t), mocks.NewMockReviewProviderClientFactory(t), nil, nil, ProviderPollingConfig{})
+
+	st, err := svc.Start(context.Background(), testReviewContext())
+
+	if got := core.ClassifyProviderError(err); got != core.ProviderErrorNotApplicable {
+		t.Fatalf("expected not applicable error, got %q state %#v error %v", got, st, err)
+	}
+}
+
+func TestActiveProviderServiceCloseInvalidatesInFlightRefresh(t *testing.T) {
+	review := testReviewContext()
+	started := make(chan struct{})
+	release := make(chan struct{})
+	provider := mocks.NewMockReviewProviderClient(t)
+	expectProbe(provider, "github", true)
+	provider.EXPECT().LoadRemoteThreads(mock.Anything, mock.Anything).Run(func(context.Context, core.ReviewContext) {
+		close(started)
+		<-release
+	}).Return([]core.RemoteReviewThread{{ExternalID: "stale"}}, nil).Once()
+	provider.EXPECT().Close().Return(nil).Once()
+	factory := mocks.NewMockReviewProviderClientFactory(t)
+	expectFactoryClient(factory, "github", provider)
+	svc := NewActiveProviderService(mockCatalog(t, ports.ReviewProviderDescriptor{Key: "github", Type: "github"}), factory, nil, nil, ProviderPollingConfig{})
+	if _, err := svc.Start(context.Background(), review); err != nil {
+		t.Fatal(err)
+	}
+
+	var wg sync.WaitGroup
+	var refreshState ActiveProviderState
+	var refreshErr error
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+		refreshState, refreshErr = svc.Refresh(context.Background(), review, false)
+	}()
+	<-started
+	if err := svc.Close(); err != nil {
+		t.Fatal(err)
+	}
+	close(release)
+	wg.Wait()
+
+	if refreshErr != nil {
+		t.Fatalf("stale refresh should be discarded without surfacing old error: %v", refreshErr)
+	}
+	if refreshState.StableProviderKey != "" || len(refreshState.Snapshot.Threads) != 0 {
+		t.Fatalf("stale refresh returned closed provider state: %#v", refreshState)
+	}
+	if state := svc.State(); state.StableProviderKey != "" || len(state.Snapshot.Threads) != 0 {
+		t.Fatalf("close should clear service state, got %#v", state)
+	}
+}
+
+func TestActiveProviderServiceAutomaticFallbackDoesNotOverwriteStoredPreference(t *testing.T) {
+	bad := mocks.NewMockReviewProviderClient(t)
+	expectProbe(bad, "bad", false)
+	bad.EXPECT().Close().Return(nil).Once()
+	good := mocks.NewMockReviewProviderClient(t)
+	expectProbe(good, "good", true)
+	factory := mocks.NewMockReviewProviderClientFactory(t)
+	expectFactoryClient(factory, "preferred", bad)
+	expectFactoryClient(factory, "github", good)
+	prefs := &memPrefs{key: "preferred", ok: true}
+	svc := NewActiveProviderService(mockCatalog(t, ports.ReviewProviderDescriptor{Key: "preferred"}, ports.ReviewProviderDescriptor{Key: "github", Type: "github"}), factory, nil, prefs, ProviderPollingConfig{})
+
+	st, err := svc.Start(context.Background(), testReviewContext())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if st.StableProviderKey != "github" {
+		t.Fatalf("got %q", st.StableProviderKey)
+	}
+	if prefs.key != "preferred" {
+		t.Fatalf("automatic fallback overwrote explicit preference with %q", prefs.key)
 	}
 }
 

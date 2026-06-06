@@ -194,16 +194,37 @@ func (p githubProvider) graphQLClient() (graphQLDoer, error) {
 	return defaultGraphQLClient()
 }
 
-func fetchGitHubSnapshot(ctx context.Context, client graphQLDoer, remote githubRemote, reviewCtx plugin.ReviewContext) (githubPRSnapshot, error) {
-	candidates, err := fetchGitHubPRCandidates(ctx, client, remote)
-	if err != nil {
-		return githubPRSnapshot{}, err
+func matchGitHubPRAcrossRemotes(ctx context.Context, client graphQLDoer, remotes []githubRemote, reviewCtx plugin.ReviewContext) (githubRemote, githubPRCandidate, error) {
+	matches := make([]struct {
+		remote githubRemote
+		pr     githubPRCandidate
+	}, 0, 1)
+	var lastErr error
+	for _, remote := range remotes {
+		candidates, err := fetchGitHubPRCandidates(ctx, client, remote)
+		if err != nil {
+			return githubRemote{}, githubPRCandidate{}, err
+		}
+		match, err := matchGitHubPR(reviewCtx, candidates)
+		if err != nil {
+			lastErr = err
+			continue
+		}
+		matches = append(matches, struct {
+			remote githubRemote
+			pr     githubPRCandidate
+		}{remote: remote, pr: match})
 	}
-	match, err := matchGitHubPR(reviewCtx, candidates)
-	if err != nil {
-		return githubPRSnapshot{}, err
+	if len(matches) == 0 {
+		if lastErr != nil {
+			return githubRemote{}, githubPRCandidate{}, lastErr
+		}
+		return githubRemote{}, githubPRCandidate{}, plugin.NewError(plugin.ErrorNotApplicable, "no matching GitHub pull request found")
 	}
-	return fetchGitHubPRSnapshot(ctx, client, remote, match.Number)
+	if len(matches) > 1 {
+		return githubRemote{}, githubPRCandidate{}, plugin.NewErrorf(plugin.ErrorNotApplicable, "ambiguous GitHub pull request match across %d remotes", len(matches))
+	}
+	return matches[0].remote, matches[0].pr, nil
 }
 
 func fetchGitHubPRCandidates(ctx context.Context, client graphQLDoer, remote githubRemote) ([]githubPRCandidate, error) {
@@ -252,10 +273,11 @@ func fetchGitHubPRSnapshot(ctx context.Context, client graphQLDoer, remote githu
 		}
 		if !threadsDone {
 			for _, thread := range pr.ReviewThreads.Nodes {
+				mapped := mapGitHubThread(thread)
 				if thread.Comments.PageInfo.HasNextPage {
-					return githubPRSnapshot{}, plugin.NewError(plugin.ErrorRemoteValidationFailed, "GitHub review thread comments pagination beyond first page is not supported")
+					mapped.Unmapped = true
 				}
-				accum.Threads = append(accum.Threads, mapGitHubThread(thread))
+				accum.Threads = append(accum.Threads, mapped)
 			}
 		}
 		if !commentsDone && pr.Comments.PageInfo.HasNextPage {

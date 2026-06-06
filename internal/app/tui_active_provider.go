@@ -15,7 +15,7 @@ type tuiActiveProviderController struct {
 
 func (c *tuiActiveProviderController) Catalog(ctx context.Context) ([]ports.ReviewProviderDescriptor, error) {
 	if c == nil || c.catalog == nil {
-		return nil, nil
+		return nil, core.NewProviderError(core.ProviderErrorNotApplicable, "no active provider catalog", nil)
 	}
 	return c.catalog.ListReviewProviderDescriptors(ctx)
 }

@@ -43,6 +43,7 @@ func (m Model) startActiveProviderCmd() tea.Cmd {
 	return func() tea.Msg {
 		catalog, catalogErr := activeProvider.Catalog(ctx)
 		state, err := activeProvider.Start(ctx, reviewContext)
+		// Provider switching needs the catalog, so surface catalog failure even when start succeeds.
 		if err == nil {
 			err = catalogErr
 		}
@@ -103,6 +104,10 @@ func (m Model) statusProviderCount() int {
 		return len(m.providerCatalog)
 	}
 	return len(m.providerInfos)
+}
+
+func (m Model) canSwitchProvider() bool {
+	return m.activeProvider != nil && len(m.providerCatalog) > 0
 }
 
 func (m *Model) applyActiveProviderState(state ActiveProviderState) {

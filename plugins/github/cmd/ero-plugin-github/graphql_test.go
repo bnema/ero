@@ -163,7 +163,7 @@ func TestLoadRemoteSnapshotDoesNotRefetchCompletedCollections(t *testing.T) {
 	}
 }
 
-func TestLoadRemoteSnapshotRejectsUnpaginatedThreadComments(t *testing.T) {
+func TestLoadRemoteSnapshotKeepsPartialThreadWhenNestedCommentsArePaginated(t *testing.T) {
 	list := ghPRListResponse{}
 	list.Repository.PullRequests.Nodes = []ghPRNode{{Number: 1, BaseRefName: "main", HeadRefName: "feature"}}
 	page := ghPRSnapshotResponse{}
@@ -173,9 +173,12 @@ func TestLoadRemoteSnapshotRejectsUnpaginatedThreadComments(t *testing.T) {
 	page.Repository.PullRequest.ReviewThreads.Nodes = []ghReviewThread{thread}
 	fake := &fakeGraphQLClient{listPages: []ghPRListResponse{list}, snapshotPages: []ghPRSnapshotResponse{page}}
 	provider := githubProvider{newGraphQLClient: func() (graphQLDoer, error) { return fake, nil }}
-	_, err := provider.LoadRemoteSnapshot(context.Background(), plugin.LoadRemoteSnapshotRequest{Context: plugin.ReviewContext{Repository: plugin.RepositoryMetadata{Remotes: []plugin.GitRemote{{URL: "https://github.com/owner/repo"}}, CurrentBranch: "feature", DefaultBranch: "main"}, Target: plugin.ReviewTargetMetadata{Mode: "branch"}}})
-	if plugin.AsError(err) == nil || plugin.AsError(err).Code != plugin.ErrorRemoteValidationFailed {
-		t.Fatalf("expected remote_validation_failed for nested comment pagination, got %v", err)
+	got, err := provider.LoadRemoteSnapshot(context.Background(), plugin.LoadRemoteSnapshotRequest{Context: plugin.ReviewContext{Repository: plugin.RepositoryMetadata{Remotes: []plugin.GitRemote{{URL: "https://github.com/owner/repo"}}, CurrentBranch: "feature", DefaultBranch: "main"}, Target: plugin.ReviewTargetMetadata{Mode: "branch"}}})
+	if err != nil {
+		t.Fatalf("LoadRemoteSnapshot returned error: %v", err)
+	}
+	if len(got.Threads) != 1 || !got.Threads[0].Unmapped || len(got.Threads[0].Comments) != 1 {
+		t.Fatalf("expected partial thread first page marked unmapped, got %#v", got.Threads)
 	}
 }
 
