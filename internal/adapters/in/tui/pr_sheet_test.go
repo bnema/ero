@@ -50,6 +50,18 @@ func TestPRSheetOverlaysRightSideFullHeightWithLeftSeparatorOnly(t *testing.T) {
 	assert.NotContains(t, view, "┘")
 }
 
+func TestComposeRightOverlayAlignsFirstRowWithRemainingRows(t *testing.T) {
+	content := "abcdef\nghijkl\nmnopqr"
+	overlay := "│ first\n│ second\n│ third"
+	plain := stripANSI(composeRightOverlay(content, overlay, 12, 3, 7))
+
+	for i, line := range strings.Split(plain, "\n") {
+		runes := []rune(line)
+		require.Greater(t, len(runes), 5)
+		assert.Equal(t, '│', runes[5], "line %d separator column", i)
+	}
+}
+
 func TestPRSheetWidthIsHalfOfView(t *testing.T) {
 	assert.Equal(t, 40, prSheetWidth(80))
 	assert.Equal(t, 30, prSheetWidth(60))

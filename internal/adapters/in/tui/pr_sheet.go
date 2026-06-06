@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"charm.land/lipgloss/v2"
+	"github.com/charmbracelet/x/ansi"
 
 	"ero/internal/core"
 )
@@ -36,14 +37,27 @@ func (m Model) renderPRSheetOverlay(content string) string {
 	height := max(m.height, 1)
 	paneWidth := prSheetWidth(width)
 	pane := m.renderPRSheet(width, height)
+	return composeRightOverlay(content, pane, width, height, paneWidth)
+}
 
-	canvas := lipgloss.NewCanvas(width, height)
-	compositor := lipgloss.NewCompositor(
-		lipgloss.NewLayer(content),
-		lipgloss.NewLayer(pane).X(max(width-paneWidth, 0)).Y(0).Z(1),
-	)
-	canvas.Compose(compositor)
-	return canvas.Render()
+func composeRightOverlay(content, overlay string, width, height, overlayWidth int) string {
+	leftWidth := max(width-overlayWidth, 0)
+	contentLines := strings.Split(content, "\n")
+	overlayLines := strings.Split(overlay, "\n")
+	rows := make([]string, height)
+	for i := range height {
+		left := ""
+		if i < len(contentLines) {
+			left = ansi.Truncate(contentLines[i], leftWidth, "")
+		}
+		left = padRightANSI(left, leftWidth)
+		right := strings.Repeat(" ", overlayWidth)
+		if i < len(overlayLines) {
+			right = overlayLines[i]
+		}
+		rows[i] = left + right
+	}
+	return strings.Join(rows, "\n")
 }
 
 func (m Model) renderPRSheet(width, height int) string {
@@ -249,4 +263,11 @@ func padRight(s string, width int) string {
 		return s
 	}
 	return s + strings.Repeat(" ", width-lipgloss.Width(s))
+}
+
+func padRightANSI(s string, width int) string {
+	if ansi.StringWidth(s) >= width {
+		return s
+	}
+	return s + strings.Repeat(" ", width-ansi.StringWidth(s))
 }
