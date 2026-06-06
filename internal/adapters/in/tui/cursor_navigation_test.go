@@ -64,6 +64,28 @@ func TestModelCursorNavigationKeepsCursorVisibleWithoutRebuildingDocument(t *tes
 	}
 }
 
+func TestModelMouseWheelScrollsReviewDocument(t *testing.T) {
+	t.Parallel()
+
+	model := NewModel([]core.ReviewFile{reviewFileWithLines("demo.go", 80)})
+	updated, _ := model.Update(tea.WindowSizeMsg{Width: 80, Height: 10})
+	model = updated.(Model)
+
+	for range 10 {
+		updated, _ = model.Update(tea.MouseWheelMsg(tea.Mouse{Button: tea.MouseWheelDown}))
+		model = updated.(Model)
+	}
+
+	assert.Equal(t, 12, model.cursorRow)
+	assert.Equal(t, 4, model.reviewViewport.YOffset())
+
+	updated, _ = model.Update(tea.MouseWheelMsg(tea.Mouse{Button: tea.MouseWheelUp}))
+	model = updated.(Model)
+
+	assert.Equal(t, 11, model.cursorRow)
+	assert.Equal(t, 4, model.reviewViewport.YOffset())
+}
+
 func TestModelCursorNavigationPreservesAbsoluteAndPageViewportSemantics(t *testing.T) {
 	t.Parallel()
 

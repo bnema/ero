@@ -320,6 +320,8 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.height = max(msg.Height, 0)
 		m.syncReviewViewport()
 		return m, nil
+	case tea.MouseWheelMsg:
+		return m.updateMouseWheel(msg)
 	case tea.KeyPressMsg:
 		if m.helpActive {
 			switch msg.String() {
@@ -348,6 +350,21 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	default:
 		return m, nil
 	}
+}
+
+func (m Model) updateMouseWheel(msg tea.MouseWheelMsg) (tea.Model, tea.Cmd) {
+	if m.helpActive || m.commentEditor != nil || m.search.active() || m.providerPicker.open || m.publish.active {
+		return m, nil
+	}
+	switch msg.Mouse().Button {
+	case tea.MouseWheelUp:
+		m.moveCursor(-1)
+	case tea.MouseWheelDown:
+		m.moveCursor(1)
+	default:
+		return m, nil
+	}
+	return m, nil
 }
 
 func (m Model) updateReviewAction(action keymap.Action) (tea.Model, tea.Cmd) {
@@ -454,6 +471,7 @@ func (m Model) View() tea.View {
 	}
 	view := tea.NewView(content)
 	view.AltScreen = true
+	view.MouseMode = tea.MouseModeCellMotion
 	if m.commentEditor != nil {
 		view.KeyboardEnhancements.ReportAllKeysAsEscapeCodes = true
 		view.KeyboardEnhancements.ReportAssociatedText = true

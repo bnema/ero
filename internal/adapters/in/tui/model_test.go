@@ -13,7 +13,7 @@ import (
 	"ero/internal/core"
 )
 
-func TestModelViewUsesAlternateScreen(t *testing.T) {
+func TestModelViewUsesAlternateScreenAndMouseWheelEvents(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
@@ -27,7 +27,9 @@ func TestModelViewUsesAlternateScreen(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 			model := NewModel(tt.files)
-			assert.True(t, model.View().AltScreen)
+			view := model.View()
+			assert.True(t, view.AltScreen)
+			assert.Equal(t, tea.MouseModeCellMotion, view.MouseMode)
 		})
 	}
 }
