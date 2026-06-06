@@ -386,6 +386,12 @@ func (m Model) updatePRSheetAction(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		return m.ScrollPRSheet(-max(m.height-1, 1)), nil
 	case keymap.ActionPageDown:
 		return m.ScrollPRSheet(max(m.height-1, 1)), nil
+	case keymap.ActionPreviousFile:
+		m.moveFile(-1)
+		return m, nil
+	case keymap.ActionNextFile:
+		m.moveFile(1)
+		return m, nil
 	case keymap.ActionTogglePRSheet:
 		return m.TogglePRSheet(), nil
 	case keymap.ActionOpenHelp:

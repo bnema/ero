@@ -87,6 +87,28 @@ func TestPRSheetCanToggleByMethodAndMessage(t *testing.T) {
 	assert.False(t, model.prSheet.open)
 }
 
+func TestPRSheetAllowsFileNavigationShortcuts(t *testing.T) {
+	model := NewModel([]core.ReviewFile{reviewFile("a.go", "package a"), reviewFile("b.go", "package b")})
+	updated, _ := model.Update(tea.WindowSizeMsg{Width: 80, Height: 8})
+	model = updated.(Model).TogglePRSheet()
+
+	updated, _ = model.Update(keyPress("l"))
+	model = updated.(Model)
+	assert.Equal(t, 1, model.selectedFile)
+
+	updated, _ = model.Update(keyPress("h"))
+	model = updated.(Model)
+	assert.Equal(t, 0, model.selectedFile)
+
+	updated, _ = model.Update(tea.KeyPressMsg{Code: tea.KeyRight})
+	model = updated.(Model)
+	assert.Equal(t, 1, model.selectedFile)
+
+	updated, _ = model.Update(tea.KeyPressMsg{Code: tea.KeyLeft})
+	model = updated.(Model)
+	assert.Equal(t, 0, model.selectedFile)
+}
+
 func TestPRSheetKeyboardAndWheelScrollSheetNotReview(t *testing.T) {
 	model := NewModel([]core.ReviewFile{reviewFileWithLines("demo.go", 30)})
 	updated, _ := model.Update(tea.WindowSizeMsg{Width: 80, Height: 4})

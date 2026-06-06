@@ -53,13 +53,7 @@ func githubPRMatches(ctx plugin.ReviewContext, pr githubPRCandidate) bool {
 		headRef = strings.TrimSpace(ctx.Repository.CurrentBranch)
 	}
 	if headRef != "" {
-		if !refEqual(pr.HeadRef, headRef) {
-			return false
-		}
-		if headSHA != "" && pr.HeadSHA != "" && !strings.EqualFold(pr.HeadSHA, headSHA) {
-			return false
-		}
-		return true
+		return refEqual(pr.HeadRef, headRef)
 	}
 
 	return headSHA != "" && pr.HeadSHA != "" && strings.EqualFold(pr.HeadSHA, headSHA)

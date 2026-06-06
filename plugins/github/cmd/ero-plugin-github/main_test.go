@@ -114,6 +114,12 @@ func TestGitHubPRMatching(t *testing.T) {
 			wantNumber: 9,
 		},
 		{
+			name:       "matching branch accepts local unpushed head SHA",
+			ctx:        plugin.ReviewContext{Repository: plugin.RepositoryMetadata{CurrentBranch: "feature", DefaultBranch: "main"}, Target: plugin.ReviewTargetMetadata{Mode: "branch", HeadSHA: "local-unpushed"}},
+			prs:        []githubPRCandidate{{Number: 10, BaseRef: "main", HeadRef: "feature", HeadSHA: "remote-pr-head"}},
+			wantNumber: 10,
+		},
+		{
 			name:    "ambiguous multiple matches returns not applicable",
 			ctx:     plugin.ReviewContext{Repository: plugin.RepositoryMetadata{CurrentBranch: "feature", DefaultBranch: "main"}, Target: plugin.ReviewTargetMetadata{Mode: "branch"}},
 			prs:     []githubPRCandidate{{Number: 5, BaseRef: "main", HeadRef: "feature"}, {Number: 6, BaseRef: "main", HeadRef: "feature"}},
