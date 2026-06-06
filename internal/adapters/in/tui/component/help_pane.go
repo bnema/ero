@@ -28,7 +28,7 @@ func RenderHelpPane(width, height int, enterKeyLabel, commentSubmitKeyLabel stri
 		renderHelpShortcut(enterKeyLabel, "jump to result", contentWidth),
 		renderHelpShortcut("esc", "cancel search", contentWidth),
 		"",
-		renderHelpShortcut("h/l", "previous/next file", contentWidth),
+		renderHelpShortcut("h/l", "previous/next chunk", contentWidth),
 		renderHelpShortcut("a", "expand all context", contentWidth),
 		renderHelpShortcut(enterKeyLabel, "expand more context", contentWidth),
 		renderHelpShortcut("s/space", "select lines", contentWidth),

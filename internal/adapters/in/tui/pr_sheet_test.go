@@ -87,26 +87,38 @@ func TestPRSheetCanToggleByMethodAndMessage(t *testing.T) {
 	assert.False(t, model.prSheet.open)
 }
 
-func TestPRSheetAllowsFileNavigationShortcuts(t *testing.T) {
-	model := NewModel([]core.ReviewFile{reviewFile("a.go", "package a"), reviewFile("b.go", "package b")})
+func TestPRSheetAllowsChunkNavigationShortcuts(t *testing.T) {
+	model := NewModel(prSheetChunkNavigationReviewFiles())
 	updated, _ := model.Update(tea.WindowSizeMsg{Width: 80, Height: 8})
 	model = updated.(Model).TogglePRSheet()
+	model.cursorRow = model.reviewAnchors.LineRows[ReviewLineAnchor{FileIndex: 0, SectionIndex: 0, LineIndex: 0}]
+	model.updateAfterCursorMove()
 
 	updated, _ = model.Update(keyPress("l"))
 	model = updated.(Model)
-	assert.Equal(t, 1, model.selectedFile)
+	assert.Equal(t, model.reviewAnchors.LineRows[ReviewLineAnchor{FileIndex: 0, SectionIndex: 2, LineIndex: 0}], model.cursorRow)
 
 	updated, _ = model.Update(keyPress("h"))
 	model = updated.(Model)
-	assert.Equal(t, 0, model.selectedFile)
+	assert.Equal(t, model.reviewAnchors.LineRows[ReviewLineAnchor{FileIndex: 0, SectionIndex: 0, LineIndex: 0}], model.cursorRow)
 
 	updated, _ = model.Update(tea.KeyPressMsg{Code: tea.KeyRight})
 	model = updated.(Model)
-	assert.Equal(t, 1, model.selectedFile)
+	assert.Equal(t, model.reviewAnchors.LineRows[ReviewLineAnchor{FileIndex: 0, SectionIndex: 2, LineIndex: 0}], model.cursorRow)
 
 	updated, _ = model.Update(tea.KeyPressMsg{Code: tea.KeyLeft})
 	model = updated.(Model)
-	assert.Equal(t, 0, model.selectedFile)
+	assert.Equal(t, model.reviewAnchors.LineRows[ReviewLineAnchor{FileIndex: 0, SectionIndex: 0, LineIndex: 0}], model.cursorRow)
+}
+
+func prSheetChunkNavigationReviewFiles() []core.ReviewFile {
+	return []core.ReviewFile{
+		{Path: "a.go", Sections: []core.ReviewSection{
+			{ID: "a-1", Kind: core.SectionKindChanged, Lines: []core.ReviewLine{{NewLineNumber: 1, Content: "a first", Kind: core.LineKindAdded}}},
+			{ID: "a-context", Kind: core.SectionKindContext, Lines: []core.ReviewLine{{OldLineNumber: 2, NewLineNumber: 2, Content: "hidden a", Kind: core.LineKindUnchanged}}},
+			{ID: "a-2", Kind: core.SectionKindChanged, Lines: []core.ReviewLine{{NewLineNumber: 3, Content: "a second", Kind: core.LineKindAdded}}},
+		}},
+	}
 }
 
 func TestPRSheetKeyboardAndWheelScrollSheetNotReview(t *testing.T) {

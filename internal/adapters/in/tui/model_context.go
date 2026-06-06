@@ -2,17 +2,6 @@ package tui
 
 import "ero/internal/core"
 
-func (m *Model) moveFile(delta int) {
-	if len(m.files) == 0 {
-		return
-	}
-
-	m.selectedFile = min(max(m.selectedFile+delta, 0), len(m.files)-1)
-	m.clearSelection()
-	m.resetContextSelection()
-	m.syncReviewViewport()
-}
-
 func (m *Model) showMoreContext(count int) {
 	fileIndex, sectionIndex, ok := m.contextSectionLocationForExpansion()
 	if !ok || !m.contextBarActionAllowed(fileIndex, sectionIndex, ContextBarActionShowMore) {

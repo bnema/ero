@@ -387,10 +387,10 @@ func (m Model) updatePRSheetAction(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 	case keymap.ActionPageDown:
 		return m.ScrollPRSheet(max(m.height-1, 1)), nil
 	case keymap.ActionPreviousFile:
-		m.moveFile(-1)
+		m.moveChunk(-1)
 		return m, nil
 	case keymap.ActionNextFile:
-		m.moveFile(1)
+		m.moveChunk(1)
 		return m, nil
 	case keymap.ActionTogglePRSheet:
 		return m.TogglePRSheet(), nil
@@ -443,9 +443,9 @@ func (m Model) updateReviewAction(action keymap.Action) (tea.Model, tea.Cmd) {
 	case keymap.ActionOpenDiffMode:
 		return m.openSearch(searchModeDiff)
 	case keymap.ActionPreviousFile:
-		m.moveFile(-1)
+		m.moveChunk(-1)
 	case keymap.ActionNextFile:
-		m.moveFile(1)
+		m.moveChunk(1)
 	case keymap.ActionExpandAllContext:
 		m.showAllContext()
 	case keymap.ActionExpandMoreContext:

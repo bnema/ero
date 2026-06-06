@@ -124,6 +124,65 @@ func TestModelCursorNavigationPreservesAbsoluteAndPageViewportSemantics(t *testi
 	}
 }
 
+func TestModelHorizontalNavigationMovesBetweenChangedChunks(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name string
+		keys []tea.KeyPressMsg
+		want ReviewLineAnchor
+	}{
+		{name: "l moves to next chunk in next file", keys: []tea.KeyPressMsg{keyPress("l"), keyPress("l")}, want: ReviewLineAnchor{FileIndex: 1, SectionIndex: 1, LineIndex: 0}},
+		{name: "right moves to next chunk in next file", keys: []tea.KeyPressMsg{{Code: tea.KeyRight}, {Code: tea.KeyRight}}, want: ReviewLineAnchor{FileIndex: 1, SectionIndex: 1, LineIndex: 0}},
+		{name: "h moves to previous chunk in previous file", keys: []tea.KeyPressMsg{keyPress("l"), keyPress("l"), keyPress("h")}, want: ReviewLineAnchor{FileIndex: 0, SectionIndex: 2, LineIndex: 0}},
+		{name: "left moves to previous chunk in previous file", keys: []tea.KeyPressMsg{{Code: tea.KeyRight}, {Code: tea.KeyRight}, {Code: tea.KeyLeft}}, want: ReviewLineAnchor{FileIndex: 0, SectionIndex: 2, LineIndex: 0}},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			model := NewModel(chunkNavigationReviewFiles())
+			updated, _ := model.Update(tea.WindowSizeMsg{Width: 80, Height: 5})
+			model = updated.(Model)
+			model.cursorRow = model.reviewAnchors.LineRows[ReviewLineAnchor{FileIndex: 0, SectionIndex: 0, LineIndex: 0}]
+			model.updateAfterCursorMove()
+			selectionAnchorRow := model.cursorRow
+			model.selectionAnchorRow = &selectionAnchorRow
+			model.selectedFile = 0
+			model.selectedContext = 0
+
+			for _, key := range tt.keys {
+				updated, _ = model.Update(key)
+				model = updated.(Model)
+			}
+
+			wantCursor := model.reviewAnchors.LineRows[tt.want]
+			assert.Equal(t, wantCursor, model.cursorRow)
+			assert.LessOrEqual(t, model.reviewViewport.YOffset(), model.cursorRow)
+			assert.Less(t, model.cursorRow, model.reviewViewport.YOffset()+model.reviewViewport.Height())
+			assert.NotEqual(t, model.reviewAnchors.FileRows[tt.want.FileIndex], model.cursorRow, "horizontal navigation should target changed chunk lines, not file headers")
+			assert.NotNil(t, model.selectionAnchorRow, "horizontal navigation should not toggle line selection")
+			assert.Equal(t, model.reviewAnchors.LineRows[ReviewLineAnchor{FileIndex: 0, SectionIndex: 0, LineIndex: 0}], *model.selectionAnchorRow)
+			assert.Equal(t, -1, model.selectedContext, "horizontal navigation should not highlight context expanders")
+		})
+	}
+}
+
+func chunkNavigationReviewFiles() []core.ReviewFile {
+	return []core.ReviewFile{
+		{Path: "a.go", Sections: []core.ReviewSection{
+			{ID: "a-1", Kind: core.SectionKindChanged, Lines: []core.ReviewLine{{NewLineNumber: 1, Content: "a first", Kind: core.LineKindAdded}}},
+			{ID: "a-context", Kind: core.SectionKindContext, Lines: []core.ReviewLine{{OldLineNumber: 2, NewLineNumber: 2, Content: "hidden a", Kind: core.LineKindUnchanged}}},
+			{ID: "a-2", Kind: core.SectionKindChanged, Lines: []core.ReviewLine{{NewLineNumber: 3, Content: "a second", Kind: core.LineKindAdded}}},
+		}},
+		{Path: "b.go", Sections: []core.ReviewSection{
+			{ID: "b-context", Kind: core.SectionKindContext, Lines: []core.ReviewLine{{OldLineNumber: 1, NewLineNumber: 1, Content: "hidden b", Kind: core.LineKindUnchanged}}},
+			{ID: "b-1", Kind: core.SectionKindChanged, Lines: []core.ReviewLine{{NewLineNumber: 2, Content: "b first", Kind: core.LineKindAdded}}},
+		}},
+	}
+}
+
 func repeatKey(key tea.KeyPressMsg, count int) []tea.KeyPressMsg {
 	keys := make([]tea.KeyPressMsg, count)
 	for i := range keys {

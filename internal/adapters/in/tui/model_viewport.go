@@ -120,6 +120,47 @@ func (m *Model) moveCursor(delta int) {
 	m.updateAfterCursorMove()
 }
 
+func (m *Model) moveChunk(delta int) {
+	if delta == 0 {
+		return
+	}
+	chunks := m.changedChunkRows()
+	if len(chunks) == 0 {
+		return
+	}
+	index := sort.Search(len(chunks), func(i int) bool { return chunks[i] >= m.cursorRow })
+	if delta > 0 {
+		if index < len(chunks) && chunks[index] == m.cursorRow {
+			index++
+		}
+		if index >= len(chunks) {
+			index = len(chunks) - 1
+		}
+	} else {
+		if index >= len(chunks) || chunks[index] >= m.cursorRow {
+			index--
+		}
+		if index < 0 {
+			index = 0
+		}
+	}
+	m.cursorRow = chunks[index]
+	m.selectedContext = -1
+	m.keepCursorVisible()
+	m.updateActiveFileFromCursor()
+	m.syncReviewVisualState()
+}
+
+func (m Model) changedChunkRows() []int {
+	rows := make([]int, 0)
+	for rowIndex, row := range m.reviewRows {
+		if row.Kind == ReviewRowKindLine && row.LineIndex == 0 && row.FileIndex >= 0 && row.FileIndex < len(m.files) && row.SectionIndex >= 0 && row.SectionIndex < len(m.files[row.FileIndex].Sections) && m.files[row.FileIndex].Sections[row.SectionIndex].Kind == core.SectionKindChanged {
+			rows = append(rows, rowIndex)
+		}
+	}
+	return rows
+}
+
 func (m *Model) moveCursorToStart() {
 	m.cursorRow = m.firstSelectableRow()
 	m.updateAfterCursorMoveWithOffset(0)
