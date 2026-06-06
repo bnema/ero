@@ -45,6 +45,31 @@ func (m *mockActiveProviderController) CompleteTimer(ctx context.Context, review
 }
 func (m *mockActiveProviderController) Close() error { return m.Called().Error(0) }
 
+func TestActiveProviderReloadToNonBranchModeClearsAndClosesProvider(t *testing.T) {
+	controller := &mockActiveProviderController{}
+	controller.On("Close").Return(nil).Once()
+	m := NewModelWithActiveProviderContext(context.Background(), []core.ReviewFile{reviewFile("branch.go", "package branch")}, nil, nil, core.ReviewRequest{DiffMode: core.DiffModeBranch}, nil, core.ReviewContext{Target: core.ReviewTargetMetadata{Mode: core.DiffModeBranch}}, controller, nil)
+	m.activeProviderKey = "github"
+	m.activeRuntimeID = "github"
+	m.activeRuntimeInfo = core.ReviewProviderInfo{ID: "github"}
+	m.providerOverview = &core.ProviderOverview{Title: "PR"}
+	m.providerSyncState = core.ProviderSyncState{Status: core.ProviderSyncStatusSynced}
+	m.remoteThreads = []core.RemoteReviewThread{{ExternalID: "old"}}
+
+	updated, cmd := m.Update(reviewLoadedMsg{mode: core.DiffModeWorking, files: []core.ReviewFile{reviewFile("working.go", "package working")}})
+	m = updated.(Model)
+	if cmd != nil {
+		_ = cmd()
+	}
+
+	require.Empty(t, m.activeProviderKey)
+	require.Empty(t, m.activeRuntimeID)
+	require.Nil(t, m.providerOverview)
+	require.Empty(t, m.remoteThreads)
+	require.Equal(t, core.DiffModeWorking, m.reviewContext.Target.Mode)
+	controller.AssertExpectations(t)
+}
+
 func TestActiveProviderDoesNotStartOutsideBranchMode(t *testing.T) {
 	controller := &mockActiveProviderController{}
 	m := NewModelWithActiveProviderContext(context.Background(), nil, nil, nil, core.ReviewRequest{DiffMode: core.DiffModeUpstream}, nil, core.ReviewContext{Target: core.ReviewTargetMetadata{Mode: core.DiffModeUpstream}}, controller, nil)

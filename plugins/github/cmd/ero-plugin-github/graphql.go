@@ -203,7 +203,8 @@ func matchGitHubPRAcrossRemotes(ctx context.Context, client graphQLDoer, remotes
 	for _, remote := range remotes {
 		candidates, err := fetchGitHubPRCandidates(ctx, client, remote)
 		if err != nil {
-			return githubRemote{}, githubPRCandidate{}, err
+			lastErr = err
+			continue
 		}
 		match, err := matchGitHubPR(reviewCtx, candidates)
 		if err != nil {
@@ -275,6 +276,8 @@ func fetchGitHubPRSnapshot(ctx context.Context, client graphQLDoer, remote githu
 			for _, thread := range pr.ReviewThreads.Nodes {
 				mapped := mapGitHubThread(thread)
 				if thread.Comments.PageInfo.HasNextPage {
+					// Keep nested pagination bounded: threads with more than 100 comments may be incomplete,
+					// so mark them unmapped rather than anchoring partial discussion inline.
 					mapped.Unmapped = true
 				}
 				accum.Threads = append(accum.Threads, mapped)

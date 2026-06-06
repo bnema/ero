@@ -233,13 +233,23 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.remoteThreads = nil
 		m.providerInfoByClient = map[ports.ReviewProviderClient]core.ReviewProviderInfo{}
 		m.publish = publishState{}
+		m.reviewContext = m.reviewContextForLoadedReview(msg.mode)
+		m.clearActiveProviderRemoteData()
 		m.resetContextSelection()
 		m.reviewViewport.GotoTop()
 		m.syncReviewViewport()
-		if len(m.reviewProviders) > 0 {
-			return m, m.loadReviewProvidersCmd()
+		cmds := []tea.Cmd{}
+		if m.activeProvider != nil {
+			if m.activeProviderSyncEnabled() {
+				cmds = append(cmds, m.startActiveProviderCmd())
+			} else {
+				cmds = append(cmds, m.closeReviewProvidersCmd())
+			}
 		}
-		return m, nil
+		if len(m.reviewProviders) > 0 {
+			cmds = append(cmds, m.loadReviewProvidersCmd())
+		}
+		return m, tea.Batch(cmds...)
 	case reviewLoadFailedMsg:
 		m.loading = false
 		m.loadError = msg.err.Error()

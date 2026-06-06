@@ -88,6 +88,14 @@ func (s *ActiveProviderService) Start(ctx context.Context, review core.ReviewCon
 			continue
 		}
 		s.mu.Lock()
+		if s.generation != startGen {
+			staleState := s.state
+			s.mu.Unlock()
+			if err := client.Close(); err != nil {
+				log.Warn().Err(err).Str("provider_key", d.Key).Msg("active provider stale start close failed")
+			}
+			return staleState, nil
+		}
 		if err := s.closeLocked(); err != nil {
 			log.Warn().Err(err).Msg("active provider close before activate failed")
 		}
@@ -151,6 +159,14 @@ func (s *ActiveProviderService) Switch(ctx context.Context, review core.ReviewCo
 				return failed, err
 			}
 			s.mu.Lock()
+			if s.generation != switchGen {
+				staleState := s.state
+				s.mu.Unlock()
+				if err := client.Close(); err != nil {
+					log.Warn().Err(err).Str("provider_key", stableKey).Msg("active provider stale switch close failed")
+				}
+				return staleState, nil
+			}
 			if err := s.closeLocked(); err != nil {
 				log.Warn().Err(err).Str("provider_key", stableKey).Msg("active provider close before switched activate failed")
 			}
@@ -175,7 +191,22 @@ func (s *ActiveProviderService) Switch(ctx context.Context, review core.ReviewCo
 		}
 	}
 	log.Warn().Str("provider_key", stableKey).Msg("active provider switch descriptor not found")
-	return ActiveProviderState{}, core.NewProviderError(core.ProviderErrorNotApplicable, "provider descriptor not found", nil)
+	err = core.NewProviderError(core.ProviderErrorNotApplicable, "provider descriptor not found", nil)
+	failed := failedProviderState(err)
+	s.mu.Lock()
+	if closeErr := s.closeLocked(); closeErr != nil {
+		log.Warn().Err(closeErr).Str("provider_key", stableKey).Msg("active provider close after missing switch descriptor failed")
+	}
+	s.stableKey = ""
+	s.runtimeID = ""
+	s.generation++
+	gen := s.generation
+	s.state = ActiveProviderState{}
+	s.mu.Unlock()
+	if !s.setState(gen, failed) {
+		return s.State(), nil
+	}
+	return failed, err
 }
 
 func (s *ActiveProviderService) PublishReview(ctx context.Context, request core.PublishReviewRequest) (core.PublishReviewResult, error) {

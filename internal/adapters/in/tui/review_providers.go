@@ -137,6 +137,7 @@ func (m *Model) applyActiveProviderState(state ActiveProviderState) {
 }
 
 func (m *Model) clearActiveProviderRemoteData() {
+	m.activeProviderKey = ""
 	m.activeRuntimeID = ""
 	m.activeRuntimeInfo = core.ReviewProviderInfo{}
 	m.providerSyncState = core.ProviderSyncState{}

@@ -94,8 +94,11 @@ func (l *ReviewProviderLoader) createReviewProviderClient(ctx context.Context, d
 	}
 	if shouldBuildRuntime(command, descriptor.PluginPath, manifest.Build.Command) {
 		if err := runPluginBuildCommand(ctx, descriptor.PluginPath, manifest.Build.Command, l.timeout); err != nil {
+			if _, available := runtimeCommandInfo(command, descriptor.PluginPath); !available {
+				return nil, fmt.Errorf("build plugin runtime: %w", err)
+			}
 			log := zerowrap.FromCtx(ctx)
-			log.Warn().Err(err).Str("plugin_path", descriptor.PluginPath).Msg("build plugin runtime failed")
+			log.Warn().Err(err).Str("plugin_path", descriptor.PluginPath).Msg("build plugin runtime failed; using existing runtime")
 		}
 	}
 	if !strings.Contains(command, "/") {

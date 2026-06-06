@@ -80,6 +80,72 @@ func TestActiveProviderServicePreferenceFallbackAndClosesFailedClients(t *testin
 	}
 }
 
+func TestActiveProviderServiceCloseInvalidatesInFlightStart(t *testing.T) {
+	review := testReviewContext()
+	started := make(chan struct{})
+	release := make(chan struct{})
+	provider := mocks.NewMockReviewProviderClient(t)
+	provider.EXPECT().Initialize(mock.Anything).Run(func(context.Context) {
+		close(started)
+		<-release
+	}).Return(core.ReviewProviderInfo{ID: "github", Capabilities: core.ReviewProviderCapabilities{LoadRemoteComments: true}}, nil).Once()
+	provider.EXPECT().DetectContext(mock.Anything, mock.Anything).Return(core.DetectionResult{Applicable: true}, nil).Once()
+	provider.EXPECT().Close().Return(nil).Once()
+	factory := mocks.NewMockReviewProviderClientFactory(t)
+	expectFactoryClient(factory, "github", provider)
+	svc := NewActiveProviderService(mockCatalog(t, ports.ReviewProviderDescriptor{Key: "github", Type: "github"}), factory, nil, nil, ProviderPollingConfig{})
+
+	var wg sync.WaitGroup
+	var startState ActiveProviderState
+	var startErr error
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+		startState, startErr = svc.Start(context.Background(), review)
+	}()
+	<-started
+	if err := svc.Close(); err != nil {
+		t.Fatal(err)
+	}
+	close(release)
+	wg.Wait()
+
+	if startErr != nil {
+		t.Fatalf("stale start should be discarded without surfacing old error: %v", startErr)
+	}
+	if startState.StableProviderKey != "" {
+		t.Fatalf("stale start returned active provider state: %#v", startState)
+	}
+	if state := svc.State(); state.StableProviderKey != "" {
+		t.Fatalf("close should win over stale start, got %#v", state)
+	}
+}
+
+func TestActiveProviderServiceMissingSwitchDescriptorClearsOldProviderState(t *testing.T) {
+	review := testReviewContext()
+	provider := mocks.NewMockReviewProviderClient(t)
+	expectProbe(provider, "github", true)
+	provider.EXPECT().Close().Return(nil).Once()
+	factory := mocks.NewMockReviewProviderClientFactory(t)
+	expectFactoryClient(factory, "github", provider)
+	svc := NewActiveProviderService(mockCatalog(t, ports.ReviewProviderDescriptor{Key: "github", Type: "github"}), factory, nil, nil, ProviderPollingConfig{})
+	if _, err := svc.Start(context.Background(), review); err != nil {
+		t.Fatal(err)
+	}
+
+	st, err := svc.Switch(context.Background(), review, "missing")
+
+	if got := core.ClassifyProviderError(err); got != core.ProviderErrorNotApplicable {
+		t.Fatalf("expected not applicable, got %q (%v)", got, err)
+	}
+	if st.StableProviderKey != "" || st.LastError == nil {
+		t.Fatalf("missing descriptor should return failed empty state, got %#v", st)
+	}
+	if state := svc.State(); state.StableProviderKey != "" || state.LastError == nil {
+		t.Fatalf("missing descriptor should clear service state, got %#v", state)
+	}
+}
+
 func TestActiveProviderServiceStartWithoutCandidatesReturnsNotApplicable(t *testing.T) {
 	svc := NewActiveProviderService(mockCatalog(t), mocks.NewMockReviewProviderClientFactory(t), nil, nil, ProviderPollingConfig{})
 

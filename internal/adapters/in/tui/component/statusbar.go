@@ -304,7 +304,7 @@ func providerSyncStatusLabel(status core.ProviderSyncStatus) string {
 }
 
 func formatStatusTime(value time.Time) string {
-	return value.UTC().Format("15:04")
+	return value.Local().Format("15:04")
 }
 
 func TruncateRunes(value string, width int) string {

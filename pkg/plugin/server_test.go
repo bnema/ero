@@ -299,8 +299,14 @@ func TestLoadRemoteSnapshotDispatchesOptionalMethod(t *testing.T) {
 	if err := json.Unmarshal(output.Bytes(), &response); err != nil {
 		t.Fatalf("invalid json: %v", err)
 	}
-	if response.Error != nil || response.Result.Overview == nil || response.Result.Overview.Title != "PR" {
-		t.Fatalf("unexpected response: %#v raw=%s", response, output.String())
+	if response.Error != nil {
+		t.Fatalf("unexpected error: %v raw=%s", response.Error, output.String())
+	}
+	if response.Result.Overview == nil {
+		t.Fatalf("missing overview in result: %#v raw=%s", response.Result, output.String())
+	}
+	if response.Result.Overview.Title != "PR" {
+		t.Fatalf("unexpected overview title: got %q, want %q", response.Result.Overview.Title, "PR")
 	}
 	if !reflect.DeepEqual(provider.methodsCalled, []string{"load_remote_snapshot"}) {
 		t.Fatalf("expected load_remote_snapshot call, got %v", provider.methodsCalled)

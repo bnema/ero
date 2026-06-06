@@ -53,10 +53,33 @@ func githubPRMatches(ctx plugin.ReviewContext, pr githubPRCandidate) bool {
 		headRef = strings.TrimSpace(ctx.Repository.CurrentBranch)
 	}
 	if headRef != "" {
-		return refEqual(pr.HeadRef, headRef)
+		if !refEqual(pr.HeadRef, headRef) {
+			return false
+		}
+		if localGitHubRemoteKnown(ctx) && prHeadRepositoryKnown(pr) && !prHeadRepositoryMatchesLocalRemote(ctx, pr) {
+			return headSHA != "" && pr.HeadSHA != "" && strings.EqualFold(pr.HeadSHA, headSHA)
+		}
+		return true
 	}
 
 	return headSHA != "" && pr.HeadSHA != "" && strings.EqualFold(pr.HeadSHA, headSHA)
+}
+
+func localGitHubRemoteKnown(ctx plugin.ReviewContext) bool {
+	return len(githubRemotes(ctx.Repository.Remotes)) > 0
+}
+
+func prHeadRepositoryKnown(pr githubPRCandidate) bool {
+	return strings.TrimSpace(pr.HeadRepoOwner) != "" && strings.TrimSpace(pr.HeadRepoName) != ""
+}
+
+func prHeadRepositoryMatchesLocalRemote(ctx plugin.ReviewContext, pr githubPRCandidate) bool {
+	for _, remote := range githubRemotes(ctx.Repository.Remotes) {
+		if strings.EqualFold(remote.Owner, pr.HeadRepoOwner) && strings.EqualFold(remote.Name, pr.HeadRepoName) {
+			return true
+		}
+	}
+	return false
 }
 
 func nonBranchHeadRef(ref string) bool {

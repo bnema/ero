@@ -14,6 +14,8 @@ import (
 func TestStatusbarProviderSync(t *testing.T) {
 	baseTime := time.Date(2026, 6, 5, 12, 34, 0, 0, time.UTC)
 	nextTime := baseTime.Add(5 * time.Minute)
+	baseLabel := baseTime.Local().Format("15:04")
+	nextLabel := nextTime.Local().Format("15:04")
 
 	tests := []struct {
 		name    string
@@ -40,17 +42,17 @@ func TestStatusbarProviderSync(t *testing.T) {
 		{
 			name:  "synced",
 			model: syncStatusModel("GitHub", "gh-runtime", core.ProviderSyncState{Status: core.ProviderSyncStatusSynced, LastSyncAt: &baseTime, NextSyncAt: &nextTime}),
-			want:  []string{"GitHub/gh-runtime", "synced", "last 12:34", "next 12:39"},
+			want:  []string{"GitHub/gh-runtime", "synced", "last " + baseLabel, "next " + nextLabel},
 		},
 		{
 			name:  "failed",
 			model: syncStatusModel("GitHub", "gh-runtime", core.ProviderSyncState{Status: core.ProviderSyncStatusFailed, LastSyncAt: &baseTime, LastError: "boom"}),
-			want:  []string{"GitHub/gh-runtime", "failed", "boom", "last 12:34"},
+			want:  []string{"GitHub/gh-runtime", "failed", "boom", "last " + baseLabel},
 		},
 		{
 			name:  "backing-off",
 			model: syncStatusModel("GitHub", "gh-runtime", core.ProviderSyncState{Status: core.ProviderSyncStatusBackingOff, LastSyncAt: &baseTime, NextSyncAt: &nextTime}),
-			want:  []string{"GitHub/gh-runtime", "backoff", "last 12:34", "next 12:39"},
+			want:  []string{"GitHub/gh-runtime", "backoff", "last " + baseLabel, "next " + nextLabel},
 		},
 	}
 

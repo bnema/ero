@@ -82,7 +82,10 @@ func (p githubProvider) DetectContext(ctx context.Context, req plugin.DetectCont
 	}
 	_, match, err := matchGitHubPRAcrossRemotes(ctx, client, remotes, req.Context)
 	if err != nil {
-		return plugin.DetectContextResult{Result: plugin.DetectionResult{Applicable: false, Reason: err.Error()}}, nil
+		if pe := plugin.AsError(err); pe != nil && pe.Code == plugin.ErrorNotApplicable {
+			return plugin.DetectContextResult{Result: plugin.DetectionResult{Applicable: false, Reason: err.Error()}}, nil
+		}
+		return plugin.DetectContextResult{}, err
 	}
 	return plugin.DetectContextResult{Result: plugin.DetectionResult{Applicable: true, Reason: "matched GitHub pull request " + githubPRSummary(match)}}, nil
 }

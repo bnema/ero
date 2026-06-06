@@ -23,8 +23,14 @@ func TestCacheRoundTripNormalizedSnapshot(t *testing.T) {
 	if !ok {
 		t.Fatal("expected cached snapshot")
 	}
-	if got.StableProviderKey != snapshot.StableProviderKey || got.RuntimeProviderID != "github" || len(got.Threads) != 1 {
-		t.Fatalf("unexpected snapshot: %#v", got)
+	if got.StableProviderKey != snapshot.StableProviderKey {
+		t.Fatalf("StableProviderKey mismatch: got %q, want %q", got.StableProviderKey, snapshot.StableProviderKey)
+	}
+	if got.RuntimeProviderID != "github" {
+		t.Fatalf("RuntimeProviderID mismatch: got %q, want %q", got.RuntimeProviderID, "github")
+	}
+	if len(got.Threads) != 1 {
+		t.Fatalf("unexpected thread count: got %d, want 1", len(got.Threads))
 	}
 }
 

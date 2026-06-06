@@ -26,5 +26,8 @@ func providerPollingConfigFromConfig(cfg *viper.Viper) ProviderPollingConfig {
 	if poll.MaxBackoff == 0 {
 		poll.MaxBackoff = time.Minute
 	}
+	if poll.MinBackoff > poll.MaxBackoff {
+		poll.MinBackoff = poll.MaxBackoff
+	}
 	return poll
 }

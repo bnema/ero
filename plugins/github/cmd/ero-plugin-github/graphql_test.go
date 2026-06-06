@@ -14,9 +14,10 @@ import (
 
 type fakeGraphQLClient struct {
 	listPages     []ghPRListResponse
+	listErrs      []error
 	snapshotPages []ghPRSnapshotResponse
-	listCalls     int
 	snapshotCalls int
+	listCalls     int
 	vars          []map[string]any
 }
 
@@ -26,6 +27,11 @@ func (f *fakeGraphQLClient) DoWithContext(_ context.Context, query string, varia
 	f.vars = append(f.vars, copied)
 	switch r := response.(type) {
 	case *ghPRListResponse:
+		if f.listCalls < len(f.listErrs) && f.listErrs[f.listCalls] != nil {
+			err := f.listErrs[f.listCalls]
+			f.listCalls++
+			return err
+		}
 		*r = f.listPages[f.listCalls]
 		f.listCalls++
 	case *ghPRSnapshotResponse:
