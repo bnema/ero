@@ -6,57 +6,12 @@ import (
 	"testing"
 	"time"
 
+	"github.com/stretchr/testify/mock"
+
 	"ero/internal/core"
 	"ero/internal/ports"
+	"ero/internal/ports/mocks"
 )
-
-type memCatalog []ports.ReviewProviderDescriptor
-
-func (m memCatalog) ListReviewProviderDescriptors(context.Context) ([]ports.ReviewProviderDescriptor, error) {
-	return []ports.ReviewProviderDescriptor(m), nil
-}
-
-type memFactory struct {
-	clients      map[string]*fakeProvider
-	made         []string
-	beforeCreate func(string)
-}
-
-func (f *memFactory) CreateReviewProviderClient(_ context.Context, d ports.ReviewProviderDescriptor) (ports.ReviewProviderClient, error) {
-	if f.beforeCreate != nil {
-		f.beforeCreate(d.Key)
-	}
-	f.made = append(f.made, d.Key)
-	return f.clients[d.Key], nil
-}
-
-type fakeProvider struct {
-	id                   string
-	applicable           bool
-	detectErr, errorLoad error
-	closed               int
-	threads              []core.RemoteReviewThread
-}
-
-func (f *fakeProvider) Initialize(context.Context) (core.ReviewProviderInfo, error) {
-	return core.ReviewProviderInfo{ID: f.id, Capabilities: core.ReviewProviderCapabilities{LoadRemoteComments: true}}, nil
-}
-func (f *fakeProvider) DetectContext(context.Context, core.ReviewContext) (core.DetectionResult, error) {
-	if f.detectErr != nil {
-		return core.DetectionResult{}, f.detectErr
-	}
-	return core.DetectionResult{Applicable: f.applicable, Reason: "nope"}, nil
-}
-func (f *fakeProvider) LoadRemoteThreads(context.Context, core.ReviewContext) ([]core.RemoteReviewThread, error) {
-	if f.errorLoad != nil {
-		return nil, f.errorLoad
-	}
-	return f.threads, nil
-}
-func (f *fakeProvider) PublishReview(context.Context, core.PublishReviewRequest) (core.PublishReviewResult, error) {
-	return core.PublishReviewResult{}, nil
-}
-func (f *fakeProvider) Close() error { f.closed++; return nil }
 
 type memCache struct {
 	snap core.ProviderSnapshot
@@ -90,23 +45,37 @@ func testReviewContext() core.ReviewContext {
 	return core.ReviewContext{Repository: core.RepositoryMetadata{Remotes: []core.GitRemote{{URL: "https://github.com/acme/repo.git"}}}, Target: core.ReviewTargetMetadata{Mode: core.DiffModeWorking}}
 }
 
+func mockCatalog(t *testing.T, descriptors ...ports.ReviewProviderDescriptor) *mocks.MockReviewProviderCatalog {
+	catalog := mocks.NewMockReviewProviderCatalog(t)
+	catalog.EXPECT().ListReviewProviderDescriptors(mock.Anything).Return(descriptors, nil)
+	return catalog
+}
+
+func expectFactoryClient(factory *mocks.MockReviewProviderClientFactory, key string, client ports.ReviewProviderClient) {
+	factory.EXPECT().CreateReviewProviderClient(mock.Anything, mock.MatchedBy(func(d ports.ReviewProviderDescriptor) bool { return d.Key == key })).Return(client, nil).Once()
+}
+
+func expectProbe(provider *mocks.MockReviewProviderClient, id string, applicable bool) {
+	provider.EXPECT().Initialize(mock.Anything).Return(core.ReviewProviderInfo{ID: id, Capabilities: core.ReviewProviderCapabilities{LoadRemoteComments: true}}, nil).Once()
+	provider.EXPECT().DetectContext(mock.Anything, mock.Anything).Return(core.DetectionResult{Applicable: applicable, Reason: "nope"}, nil).Once()
+}
+
 func TestActiveProviderServicePreferenceFallbackAndClosesFailedClients(t *testing.T) {
-	bad := &fakeProvider{id: "bad", applicable: false}
-	good := &fakeProvider{id: "good", applicable: true}
-	fac := &memFactory{clients: map[string]*fakeProvider{"preferred": bad, "github": good}}
-	svc := NewActiveProviderService(memCatalog{{Key: "preferred"}, {Key: "github", Type: "github"}}, fac, nil, &memPrefs{key: "preferred", ok: true}, ProviderPollingConfig{})
+	bad := mocks.NewMockReviewProviderClient(t)
+	expectProbe(bad, "bad", false)
+	bad.EXPECT().Close().Return(nil).Once()
+	good := mocks.NewMockReviewProviderClient(t)
+	expectProbe(good, "good", true)
+	factory := mocks.NewMockReviewProviderClientFactory(t)
+	expectFactoryClient(factory, "preferred", bad)
+	expectFactoryClient(factory, "github", good)
+	svc := NewActiveProviderService(mockCatalog(t, ports.ReviewProviderDescriptor{Key: "preferred"}, ports.ReviewProviderDescriptor{Key: "github", Type: "github"}), factory, nil, &memPrefs{key: "preferred", ok: true}, ProviderPollingConfig{})
 	st, err := svc.Start(context.Background(), testReviewContext())
 	if err != nil {
 		t.Fatal(err)
 	}
 	if st.StableProviderKey != "github" {
 		t.Fatalf("got %q", st.StableProviderKey)
-	}
-	if bad.closed != 1 {
-		t.Fatalf("failed client not closed")
-	}
-	if good.closed != 0 {
-		t.Fatalf("active client was closed")
 	}
 }
 
@@ -115,8 +84,12 @@ func TestActiveProviderServiceCacheFirstRefreshPreservesCacheOnRetryableFailure(
 	key := core.NewReviewContextKey("github", review)
 	cached := core.ProviderSnapshot{StableProviderKey: "github", ContextKey: key, Threads: []core.RemoteReviewThread{{ExternalID: "old"}}}
 	cache := &memCache{snap: cached, ok: true}
-	p := &fakeProvider{id: "rt", applicable: true, errorLoad: core.NewProviderError(core.ProviderErrorTransientNetwork, "offline", errors.New("dial"))}
-	svc := NewActiveProviderService(memCatalog{{Key: "github", Type: "github"}}, &memFactory{clients: map[string]*fakeProvider{"github": p}}, cache, nil, ProviderPollingConfig{Interval: time.Minute, MinBackoff: time.Second, MaxBackoff: time.Second})
+	provider := mocks.NewMockReviewProviderClient(t)
+	expectProbe(provider, "rt", true)
+	provider.EXPECT().LoadRemoteThreads(mock.Anything, mock.Anything).Return(nil, core.NewProviderError(core.ProviderErrorTransientNetwork, "offline", errors.New("dial"))).Once()
+	factory := mocks.NewMockReviewProviderClientFactory(t)
+	expectFactoryClient(factory, "github", provider)
+	svc := NewActiveProviderService(mockCatalog(t, ports.ReviewProviderDescriptor{Key: "github", Type: "github"}), factory, cache, nil, ProviderPollingConfig{Interval: time.Minute, MinBackoff: time.Second, MaxBackoff: time.Second})
 	st, err := svc.Start(context.Background(), review)
 	if err != nil {
 		t.Fatal(err)
@@ -141,18 +114,23 @@ func TestActiveProviderServiceCacheFirstRefreshPreservesCacheOnRetryableFailure(
 
 func TestActiveProviderServiceSwitchGenerationIgnoresStaleTimer(t *testing.T) {
 	review := testReviewContext()
-	a := &fakeProvider{id: "a", applicable: true}
-	b := &fakeProvider{id: "b", applicable: true}
-	svc := NewActiveProviderService(memCatalog{{Key: "a"}, {Key: "b"}}, &memFactory{clients: map[string]*fakeProvider{"a": a, "b": b}}, nil, nil, ProviderPollingConfig{})
+	a := mocks.NewMockReviewProviderClient(t)
+	expectProbe(a, "a", true)
+	aClosed := false
+	a.EXPECT().Close().Run(func() { aClosed = true }).Return(nil).Once()
+	b := mocks.NewMockReviewProviderClient(t)
+	expectProbe(b, "b", true)
+	factory := mocks.NewMockReviewProviderClientFactory(t)
+	expectFactoryClient(factory, "a", a)
+	expectFactoryClient(factory, "b", b)
+	svc := NewActiveProviderService(mockCatalog(t, ports.ReviewProviderDescriptor{Key: "a"}, ports.ReviewProviderDescriptor{Key: "b"}), factory, nil, nil, ProviderPollingConfig{})
 	st, err := svc.Start(context.Background(), review)
 	if err != nil {
 		t.Fatal(err)
 	}
 	target := "b"
-	oldProvider := a
 	if st.StableProviderKey == "b" {
-		target = "a"
-		oldProvider = b
+		t.Fatal("expected deterministic initial provider a")
 	}
 	old := svc.Generation()
 	if _, err := svc.Switch(context.Background(), review, target); err != nil {
@@ -164,24 +142,29 @@ func TestActiveProviderServiceSwitchGenerationIgnoresStaleTimer(t *testing.T) {
 	if got := svc.State().StableProviderKey; got != target {
 		t.Fatalf("stale timer changed state to %q", got)
 	}
-	if oldProvider.closed != 1 {
+	if !aClosed {
 		t.Fatalf("switch should close old client")
 	}
 }
 
 func TestActiveProviderServiceSwitchClosesCurrentBeforeStartingTarget(t *testing.T) {
 	review := testReviewContext()
-	a := &fakeProvider{id: "a", applicable: true}
-	b := &fakeProvider{id: "b", applicable: true}
-	factory := &memFactory{clients: map[string]*fakeProvider{"a": a, "b": b}}
-	svc := NewActiveProviderService(memCatalog{{Key: "a"}, {Key: "b"}}, factory, nil, nil, ProviderPollingConfig{})
-	if _, err := svc.Start(context.Background(), review); err != nil {
-		t.Fatal(err)
-	}
-	factory.beforeCreate = func(key string) {
-		if key == "b" && a.closed != 1 {
+	a := mocks.NewMockReviewProviderClient(t)
+	expectProbe(a, "a", true)
+	aClosed := false
+	a.EXPECT().Close().Run(func() { aClosed = true }).Return(nil).Once()
+	b := mocks.NewMockReviewProviderClient(t)
+	expectProbe(b, "b", true)
+	factory := mocks.NewMockReviewProviderClientFactory(t)
+	expectFactoryClient(factory, "a", a)
+	factory.EXPECT().CreateReviewProviderClient(mock.Anything, mock.MatchedBy(func(d ports.ReviewProviderDescriptor) bool { return d.Key == "b" })).Run(func(_ context.Context, _ ports.ReviewProviderDescriptor) {
+		if !aClosed {
 			t.Fatalf("current provider was still live when target provider started")
 		}
+	}).Return(b, nil).Once()
+	svc := NewActiveProviderService(mockCatalog(t, ports.ReviewProviderDescriptor{Key: "a"}, ports.ReviewProviderDescriptor{Key: "b"}), factory, nil, nil, ProviderPollingConfig{})
+	if _, err := svc.Start(context.Background(), review); err != nil {
+		t.Fatal(err)
 	}
 	if _, err := svc.Switch(context.Background(), review, "b"); err != nil {
 		t.Fatal(err)
@@ -190,9 +173,17 @@ func TestActiveProviderServiceSwitchClosesCurrentBeforeStartingTarget(t *testing
 
 func TestActiveProviderServiceFailedSwitchClearsOldProviderState(t *testing.T) {
 	review := testReviewContext()
-	a := &fakeProvider{id: "a", applicable: true, threads: []core.RemoteReviewThread{{ExternalID: "old"}}}
-	b := &fakeProvider{id: "b", applicable: false}
-	svc := NewActiveProviderService(memCatalog{{Key: "a"}, {Key: "b"}}, &memFactory{clients: map[string]*fakeProvider{"a": a, "b": b}}, nil, nil, ProviderPollingConfig{})
+	a := mocks.NewMockReviewProviderClient(t)
+	expectProbe(a, "a", true)
+	a.EXPECT().LoadRemoteThreads(mock.Anything, mock.Anything).Return([]core.RemoteReviewThread{{ExternalID: "old"}}, nil).Once()
+	a.EXPECT().Close().Return(nil).Once()
+	b := mocks.NewMockReviewProviderClient(t)
+	expectProbe(b, "b", false)
+	b.EXPECT().Close().Return(nil).Once()
+	factory := mocks.NewMockReviewProviderClientFactory(t)
+	expectFactoryClient(factory, "a", a)
+	expectFactoryClient(factory, "b", b)
+	svc := NewActiveProviderService(mockCatalog(t, ports.ReviewProviderDescriptor{Key: "a"}, ports.ReviewProviderDescriptor{Key: "b"}), factory, nil, nil, ProviderPollingConfig{})
 	if _, err := svc.Start(context.Background(), review); err != nil {
 		t.Fatal(err)
 	}
@@ -213,35 +204,37 @@ func TestActiveProviderServiceFailedSwitchClearsOldProviderState(t *testing.T) {
 	if state := svc.State(); state.StableProviderKey != "" || len(state.Snapshot.Threads) != 0 || state.LastError == nil {
 		t.Fatalf("failed switch left incoherent service state: %#v", state)
 	}
-	if a.closed != 1 {
-		t.Fatalf("old provider should be closed, got %d", a.closed)
-	}
 }
 
 func TestActiveProviderServiceUsesStableCatalogOrder(t *testing.T) {
 	review := testReviewContext()
-	fac := &memFactory{clients: map[string]*fakeProvider{
-		"first":  {id: "first", applicable: true},
-		"github": {id: "github", applicable: true},
-		"second": {id: "second", applicable: true},
-	}}
-	svc := NewActiveProviderService(memCatalog{{Key: "first"}, {Key: "github", ContributionID: "github"}, {Key: "second"}}, fac, nil, nil, ProviderPollingConfig{})
+	github := mocks.NewMockReviewProviderClient(t)
+	expectProbe(github, "github", true)
+	factory := mocks.NewMockReviewProviderClientFactory(t)
+	made := []string{}
+	factory.EXPECT().CreateReviewProviderClient(mock.Anything, mock.MatchedBy(func(d ports.ReviewProviderDescriptor) bool { return d.Key == "github" })).Run(func(_ context.Context, d ports.ReviewProviderDescriptor) { made = append(made, d.Key) }).Return(github, nil).Once()
+	svc := NewActiveProviderService(mockCatalog(t, ports.ReviewProviderDescriptor{Key: "first"}, ports.ReviewProviderDescriptor{Key: "github", ContributionID: "github"}, ports.ReviewProviderDescriptor{Key: "second"}), factory, nil, nil, ProviderPollingConfig{})
 	if _, err := svc.Start(context.Background(), review); err != nil {
 		t.Fatal(err)
 	}
-	if got := fac.made; len(got) != 1 || got[0] != "github" {
+	if got := made; len(got) != 1 || got[0] != "github" {
 		t.Fatalf("github fallback should be selected in catalog order, got %v", got)
 	}
 
-	fac = &memFactory{clients: map[string]*fakeProvider{
-		"z": {id: "z", applicable: false},
-		"a": {id: "a", applicable: true},
-	}}
-	svc = NewActiveProviderService(memCatalog{{Key: "z"}, {Key: "a"}}, fac, nil, nil, ProviderPollingConfig{})
+	z := mocks.NewMockReviewProviderClient(t)
+	expectProbe(z, "z", false)
+	z.EXPECT().Close().Return(nil).Once()
+	a := mocks.NewMockReviewProviderClient(t)
+	expectProbe(a, "a", true)
+	factory = mocks.NewMockReviewProviderClientFactory(t)
+	made = []string{}
+	factory.EXPECT().CreateReviewProviderClient(mock.Anything, mock.MatchedBy(func(d ports.ReviewProviderDescriptor) bool { return d.Key == "z" })).Run(func(_ context.Context, d ports.ReviewProviderDescriptor) { made = append(made, d.Key) }).Return(z, nil).Once()
+	factory.EXPECT().CreateReviewProviderClient(mock.Anything, mock.MatchedBy(func(d ports.ReviewProviderDescriptor) bool { return d.Key == "a" })).Run(func(_ context.Context, d ports.ReviewProviderDescriptor) { made = append(made, d.Key) }).Return(a, nil).Once()
+	svc = NewActiveProviderService(mockCatalog(t, ports.ReviewProviderDescriptor{Key: "z"}, ports.ReviewProviderDescriptor{Key: "a"}), factory, nil, nil, ProviderPollingConfig{})
 	if _, err := svc.Start(context.Background(), review); err != nil {
 		t.Fatal(err)
 	}
-	if got := fac.made; len(got) != 2 || got[0] != "z" || got[1] != "a" {
+	if got := made; len(got) != 2 || got[0] != "z" || got[1] != "a" {
 		t.Fatalf("remaining candidates should preserve catalog order, got %v", got)
 	}
 }

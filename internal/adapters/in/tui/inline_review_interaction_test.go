@@ -14,15 +14,6 @@ import (
 	"ero/internal/ports/mocks"
 )
 
-type deadlineRecordingClipboardWriter struct {
-	hadDeadline bool
-}
-
-func (w *deadlineRecordingClipboardWriter) WriteClipboard(ctx context.Context, _ string) error {
-	_, w.hadDeadline = ctx.Deadline()
-	return nil
-}
-
 func TestModelOpenCommentEditorUsesSelectedLineRange(t *testing.T) {
 	model := NewModel([]core.ReviewFile{reviewFileWithLines("demo.go", 3)})
 	updated, _ := model.Update(keyPress("s"))
@@ -78,8 +69,8 @@ func TestModelInlineCommentSubmitCopiesReviewJSON(t *testing.T) {
 }
 
 func TestModelInlineCommentSubmitCopiesReviewJSONWithClipboardDeadline(t *testing.T) {
-	writer := &deadlineRecordingClipboardWriter{}
-	model := NewModelWithClipboardWriter([]core.ReviewFile{reviewFileWithLines("demo.go", 1)}, nil, nil, core.ReviewRequest{DiffMode: core.DiffModeBranch}, writer)
+	clipboard := mocks.NewMockClipboardWriter(t)
+	model := NewModelWithClipboardWriter([]core.ReviewFile{reviewFileWithLines("demo.go", 1)}, nil, nil, core.ReviewRequest{DiffMode: core.DiffModeBranch}, clipboard)
 
 	updated, _ := model.Update(keyPress("c"))
 	model = updated.(Model)
@@ -88,13 +79,17 @@ func TestModelInlineCommentSubmitCopiesReviewJSONWithClipboardDeadline(t *testin
 		model = updated.(Model)
 	}
 
+	hadDeadline := false
+	clipboard.EXPECT().WriteClipboard(mock.Anything, mock.Anything).Run(func(ctx context.Context, _ string) {
+		_, hadDeadline = ctx.Deadline()
+	}).Return(nil).Once()
 	updated, cmd := model.Update(tea.KeyPressMsg{Code: tea.KeyEnter, Mod: tea.ModCtrl})
 	model = updated.(Model)
 	require.NotNil(t, cmd)
 	updated, _ = model.Update(cmd())
 	model = updated.(Model)
 
-	assert.True(t, writer.hadDeadline, "clipboard writes should use a deadline so status feedback cannot remain stuck on Copying review JSON… forever")
+	assert.True(t, hadDeadline, "clipboard writes should use a deadline so status feedback cannot remain stuck on Copying review JSON… forever")
 	assert.Contains(t, model.copyFeedback, "Review JSON copied")
 }
 

@@ -10,6 +10,7 @@ import (
 
 	"ero/internal/core"
 	"ero/internal/ports"
+	portmocks "ero/internal/ports/mocks"
 )
 
 type mockActiveProviderController struct{ mock.Mock }
@@ -50,7 +51,8 @@ func TestActiveProviderStartupLoadsOnlyActiveProviderState(t *testing.T) {
 	startState := ActiveProviderState{StableProviderKey: "github", RuntimeProviderID: "github-runtime", RuntimeInfo: core.ReviewProviderInfo{ID: "github-runtime", Label: "GitHub"}, Snapshot: core.ProviderSnapshot{Threads: []core.RemoteReviewThread{{ProviderID: "github-runtime", ExternalID: "t1"}}, Sync: core.ProviderSyncState{Status: core.ProviderSyncStatusSynced}}}
 	controller.On("Catalog", mock.Anything).Return(catalog, nil).Once()
 	controller.On("Start", mock.Anything, mock.Anything).Return(startState, nil).Once()
-	m := NewModelWithActiveProviderContext(context.Background(), []core.ReviewFile{reviewFile("demo.go", "package main")}, nil, nil, core.ReviewRequest{}, nil, core.ReviewContext{}, controller, []ports.ReviewProviderClient{fakeProviderAsPort{&fakeReviewProvider{}}})
+	legacyProvider := portmocks.NewMockReviewProviderClient(t)
+	m := NewModelWithActiveProviderContext(context.Background(), []core.ReviewFile{reviewFile("demo.go", "package main")}, nil, nil, core.ReviewRequest{}, nil, core.ReviewContext{}, controller, []ports.ReviewProviderClient{legacyProvider})
 
 	cmd := m.Init()
 	require.NotNil(t, cmd)
