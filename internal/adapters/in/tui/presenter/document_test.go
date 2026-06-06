@@ -91,7 +91,6 @@ func TestBuildReviewDocumentProjectsAnnotationRowsAndRebuildsAnchors(t *testing.
 	})
 
 	assert.Equal(t, []ReviewRowKind{
-		ReviewRowKindRemoteThread,
 		ReviewRowKindFile,
 		ReviewRowKindRule,
 		ReviewRowKindLine,
@@ -104,22 +103,45 @@ func TestBuildReviewDocumentProjectsAnnotationRowsAndRebuildsAnchors(t *testing.
 		ReviewRowKindEditor,
 		ReviewRowKindEditor,
 	}, rowKinds(doc.Rows))
-	assert.Equal(t, 1, doc.Anchors.FileRows[0])
-	assert.Equal(t, 3, doc.Anchors.LineRows[ReviewLineAnchor{FileIndex: 0, SectionIndex: 0, LineIndex: 0}])
-	assert.Equal(t, 6, doc.Anchors.LineRows[ReviewLineAnchor{FileIndex: 0, SectionIndex: 0, LineIndex: 1}])
-	assert.Equal(t, 9, doc.Anchors.LineRows[ReviewLineAnchor{FileIndex: 0, SectionIndex: 0, LineIndex: 2}])
-	assert.Equal(t, "comment-1", doc.Rows[4].Annotation.Comment.ID)
-	assert.Equal(t, 0, doc.Rows[4].Annotation.LineIndex)
-	assert.Equal(t, "local note", doc.Rows[5].Annotation.Body)
-	assert.Equal(t, "github", doc.Rows[0].Annotation.RemoteThread.ProviderID)
-	assert.True(t, doc.Rows[0].Annotation.RemoteThread.Unmapped)
-	assert.Equal(t, "github", doc.Rows[7].Annotation.RemoteThread.ProviderID)
-	assert.Equal(t, "octocat", doc.Rows[8].Annotation.Author)
-	assert.Equal(t, "remote note", doc.Rows[8].Annotation.Body)
-	assert.Equal(t, "demo.go", doc.Rows[10].Annotation.Editor.FilePath)
-	assert.Equal(t, 0, doc.Rows[10].Annotation.LineIndex)
-	assert.Equal(t, 1, doc.Rows[11].Annotation.LineIndex)
-	assert.False(t, doc.Rows[4].Selectable)
+	assert.Equal(t, 0, doc.Anchors.FileRows[0])
+	assert.Equal(t, 2, doc.Anchors.LineRows[ReviewLineAnchor{FileIndex: 0, SectionIndex: 0, LineIndex: 0}])
+	assert.Equal(t, 5, doc.Anchors.LineRows[ReviewLineAnchor{FileIndex: 0, SectionIndex: 0, LineIndex: 1}])
+	assert.Equal(t, 8, doc.Anchors.LineRows[ReviewLineAnchor{FileIndex: 0, SectionIndex: 0, LineIndex: 2}])
+	assert.Equal(t, "comment-1", doc.Rows[3].Annotation.Comment.ID)
+	assert.Equal(t, 0, doc.Rows[3].Annotation.LineIndex)
+	assert.Equal(t, "local note", doc.Rows[4].Annotation.Body)
+	assert.Equal(t, "github", doc.Rows[6].Annotation.RemoteThread.ProviderID)
+	assert.Equal(t, "octocat", doc.Rows[7].Annotation.Author)
+	assert.Equal(t, "remote note", doc.Rows[7].Annotation.Body)
+	assert.Equal(t, "demo.go", doc.Rows[9].Annotation.Editor.FilePath)
+	assert.Equal(t, 0, doc.Rows[9].Annotation.LineIndex)
+	assert.Equal(t, 1, doc.Rows[10].Annotation.LineIndex)
+	assert.False(t, doc.Rows[3].Selectable)
+}
+
+func TestBuildReviewDocumentDoesNotProjectUnmappedOrFilelessRemoteThreads(t *testing.T) {
+	t.Parallel()
+
+	doc := BuildReviewDocument(ReviewDocumentInput{
+		Files: []core.ReviewFile{{
+			Path:     "demo.go",
+			Sections: []core.ReviewSection{{Kind: core.SectionKindChanged, Lines: []core.ReviewLine{{NewLineNumber: 1, Content: "one", Kind: core.LineKindAdded}}}},
+		}},
+		Annotations: ReviewAnnotations{RemoteThreads: []core.RemoteReviewThread{
+			{ProviderID: "github", ExternalID: "unmapped", Unmapped: true, Comments: []core.RemoteReviewComment{{Body: "orphaned"}}},
+			{ProviderID: "github", ExternalID: "fileless", Comments: []core.RemoteReviewComment{{Body: "no file"}}},
+			{ProviderID: "github", ExternalID: "mapped", FilePath: "demo.go", Range: core.ReviewLineRange{Start: core.ReviewLineRef{NewLineNumber: 1, Kind: core.LineKindAdded}, End: core.ReviewLineRef{NewLineNumber: 1, Kind: core.LineKindAdded}}, Comments: []core.RemoteReviewComment{{Author: "octocat", Body: "mapped note"}}},
+		}},
+	})
+
+	require.Equal(t, ReviewRowKindFile, doc.Rows[0].Kind)
+	var remoteIDs []string
+	for _, row := range doc.Rows {
+		if row.Kind == ReviewRowKindRemoteThread {
+			remoteIDs = append(remoteIDs, row.Annotation.RemoteThread.ExternalID)
+		}
+	}
+	require.Equal(t, []string{"mapped", "mapped"}, remoteIDs)
 }
 
 func TestBuildReviewDocumentAnnotationRowsMatchRenderedLineCountsBeforeLaterAnchors(t *testing.T) {

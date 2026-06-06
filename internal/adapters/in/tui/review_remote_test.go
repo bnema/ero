@@ -24,10 +24,12 @@ func TestRemoteReviewAnnotations(t *testing.T) {
 	require.Contains(t, view, "octocat: remote note")
 }
 
-func TestRemoteReviewAnnotationsUnmapped(t *testing.T) {
+func TestRemoteReviewAnnotationsUnmappedAreHiddenFromDiff(t *testing.T) {
 	rendered := renderReviewForTest([]core.ReviewFile{reviewFile("demo.go", "package main")}, 80, -1, -1, presenter.ReviewAnnotations{
 		RemoteThreads: []core.RemoteReviewThread{{ProviderID: "github", Unmapped: true, Comments: []core.RemoteReviewComment{{Body: "orphaned"}}}},
 	})
 	view := stripANSI(rendered.Content)
-	require.Contains(t, view, "[github] unmapped: orphaned")
+	require.NotContains(t, view, "[github] unmapped")
+	require.NotContains(t, view, "orphaned")
+	require.Contains(t, view, "demo.go")
 }

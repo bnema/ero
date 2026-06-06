@@ -43,7 +43,6 @@ type reviewDocumentBuilder struct {
 }
 
 func (b *reviewDocumentBuilder) build() ReviewDocument {
-	b.appendUnmappedRemoteThreads()
 	if len(b.input.Files) == 0 {
 		b.rows = append(b.rows,
 			ReviewRow{Kind: ReviewRowKindMessage, Message: "Review"},
@@ -56,15 +55,6 @@ func (b *reviewDocumentBuilder) build() ReviewDocument {
 		b.appendFile(fileIndex, file)
 	}
 	return b.document()
-}
-
-func (b *reviewDocumentBuilder) appendUnmappedRemoteThreads() {
-	for _, thread := range b.input.Annotations.RemoteThreads {
-		if !thread.Unmapped && thread.FilePath != "" {
-			continue
-		}
-		b.rows = append(b.rows, ReviewRow{Kind: ReviewRowKindRemoteThread, FileIndex: -1, SectionIndex: -1, LineIndex: -1, Annotation: ReviewAnnotation{RemoteThread: thread}})
-	}
 }
 
 func (b *reviewDocumentBuilder) appendFile(fileIndex int, file core.ReviewFile) {
