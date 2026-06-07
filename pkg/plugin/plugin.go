@@ -46,12 +46,17 @@ type (
 	DetectionResult      = protocol.DetectionResult
 )
 
-// Remote thread types
+// Remote thread and snapshot types
 type (
-	LoadRemoteThreadsRequest = protocol.LoadRemoteThreadsRequest
-	LoadRemoteThreadsResult  = protocol.LoadRemoteThreadsResult
-	RemoteReviewThread       = protocol.RemoteReviewThread
-	RemoteReviewComment      = protocol.RemoteReviewComment
+	LoadRemoteThreadsRequest  = protocol.LoadRemoteThreadsRequest
+	LoadRemoteThreadsResult   = protocol.LoadRemoteThreadsResult
+	LoadRemoteSnapshotRequest = protocol.LoadRemoteSnapshotRequest
+	LoadRemoteSnapshotResult  = protocol.LoadRemoteSnapshotResult
+	ProviderOverview          = protocol.ProviderOverview
+	ProviderIssueComment      = protocol.ProviderIssueComment
+	ProviderReviewSummary     = protocol.ProviderReviewSummary
+	RemoteReviewThread        = protocol.RemoteReviewThread
+	RemoteReviewComment       = protocol.RemoteReviewComment
 )
 
 // Publish types

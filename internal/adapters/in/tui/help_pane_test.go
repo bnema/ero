@@ -24,6 +24,11 @@ func TestModelHelpModalShowsShortcutsAndCloses(t *testing.T) {
 	assert.Contains(t, view, "select result")
 	assert.Contains(t, view, "a             expand all")
 	assert.Contains(t, view, "expand more")
+	assert.Contains(t, view, "switch provider")
+	assert.Contains(t, view, "cycle provider")
+	assert.NotContains(t, view, "g/G")
+	assert.Contains(t, view, "refresh provider")
+	assert.Contains(t, view, "PR sheet")
 	assert.NotContains(t, view, "a/b")
 
 	updated, _ = model.Update(tea.KeyPressMsg{Code: tea.KeyEsc})

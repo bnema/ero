@@ -59,14 +59,14 @@ func TestResolveStartupDecisionChoosesBranchStateModes(t *testing.T) {
 		want  StartupDecision
 	}{
 		{
-			name:  "ahead of upstream uses upstream diff",
-			state: StartupState{HasUpstream: true, Ahead: 2},
-			want:  StartupDecision{Kind: StartupDecisionUseMode, DiffMode: DiffModeUpstream},
+			name:  "ahead of upstream uses branch diff when default branch exists",
+			state: StartupState{HasUpstream: true, Ahead: 2, HasDefaultBranch: true},
+			want:  StartupDecision{Kind: StartupDecisionUseMode, DiffMode: DiffModeBranch},
 		},
 		{
-			name:  "diverged from upstream uses upstream diff from merge base",
-			state: StartupState{HasUpstream: true, Ahead: 1, Behind: 1},
-			want:  StartupDecision{Kind: StartupDecisionUseMode, DiffMode: DiffModeUpstream},
+			name:  "diverged from upstream uses branch diff when default branch exists",
+			state: StartupState{HasUpstream: true, Ahead: 1, Behind: 1, HasDefaultBranch: true},
+			want:  StartupDecision{Kind: StartupDecisionUseMode, DiffMode: DiffModeBranch},
 		},
 		{
 			name:  "behind upstream only asks user to pull instead of reviewing remote-only changes",

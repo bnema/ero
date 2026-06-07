@@ -13,7 +13,7 @@ import (
 	"ero/internal/core"
 )
 
-func TestModelViewUsesAlternateScreen(t *testing.T) {
+func TestModelViewUsesAlternateScreenAndMouseWheelEvents(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
@@ -27,9 +27,26 @@ func TestModelViewUsesAlternateScreen(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 			model := NewModel(tt.files)
-			assert.True(t, model.View().AltScreen)
+			view := model.View()
+			assert.True(t, view.AltScreen)
+			assert.Equal(t, tea.MouseModeCellMotion, view.MouseMode)
 		})
 	}
+}
+
+func TestModelViewShowsUnpublishedDraftCommentCount(t *testing.T) {
+	t.Parallel()
+
+	model := NewModel([]core.ReviewFile{reviewFile("demo.go", "package main")})
+	_, err := model.reviewDraft.AddComment(core.ReviewCommentInput{FilePath: "demo.go", Range: core.ReviewLineRange{Start: core.ReviewLineRef{NewLineNumber: 1}, End: core.ReviewLineRef{NewLineNumber: 1}}, Body: "first"})
+	require.NoError(t, err)
+	_, err = model.reviewDraft.AddComment(core.ReviewCommentInput{FilePath: "demo.go", Range: core.ReviewLineRange{Start: core.ReviewLineRef{NewLineNumber: 1}, End: core.ReviewLineRef{NewLineNumber: 1}}, Body: "second"})
+	require.NoError(t, err)
+	model.reviewDraft.ApplyPublishedRefs("github", []core.PublishedReviewCommentRef{{LocalCommentID: "comment-1", ExternalID: "remote-1"}})
+
+	view := stripANSI(model.View().Content)
+
+	require.Contains(t, view, "1 draft comment")
 }
 
 func TestModelViewRendersSequentialReviewDocumentWithoutFileExplorer(t *testing.T) {

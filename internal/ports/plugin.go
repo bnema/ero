@@ -52,6 +52,28 @@ type PluginRemoveResult struct {
 	RemovedRepo bool   `json:"removed_repo"`
 }
 
+// ReviewProviderDescriptor describes a review_provider contribution without starting its runtime.
+type ReviewProviderDescriptor struct {
+	Key            string
+	PluginName     string
+	PluginVersion  string
+	PluginSource   string
+	PluginPath     string
+	ContributionID string
+	Label          string
+	Type           string
+}
+
+// ReviewProviderCatalog discovers review_provider contribution descriptors.
+type ReviewProviderCatalog interface {
+	ListReviewProviderDescriptors(ctx context.Context) ([]ReviewProviderDescriptor, error)
+}
+
+// ReviewProviderClientFactory creates live provider clients for selected descriptors.
+type ReviewProviderClientFactory interface {
+	CreateReviewProviderClient(ctx context.Context, descriptor ReviewProviderDescriptor) (ReviewProviderClient, error)
+}
+
 // ReviewProviderLoader builds provider clients from installed plugin sources.
 type ReviewProviderLoader interface {
 	LoadReviewProviders(ctx context.Context) ([]ReviewProviderClient, error)
@@ -81,4 +103,10 @@ type ReviewProviderClient interface {
 	LoadRemoteThreads(ctx context.Context, review core.ReviewContext) ([]core.RemoteReviewThread, error)
 	PublishReview(ctx context.Context, request core.PublishReviewRequest) (core.PublishReviewResult, error)
 	Close() error
+}
+
+// ReviewProviderSnapshotClient is implemented by providers that can load a
+// normalized PR/provider snapshot in one call instead of remote threads only.
+type ReviewProviderSnapshotClient interface {
+	LoadRemoteSnapshot(ctx context.Context, review core.ReviewContext) (core.ProviderSnapshot, error)
 }

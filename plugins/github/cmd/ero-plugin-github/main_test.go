@@ -9,14 +9,194 @@ import (
 	"ero/pkg/plugin"
 )
 
-func TestDetectContextRequiresGitHubRemote(t *testing.T) {
-	provider := githubProvider{}
-	result, err := provider.DetectContext(context.Background(), plugin.DetectContextRequest{Context: plugin.ReviewContext{Repository: plugin.RepositoryMetadata{Remotes: []plugin.GitRemote{{Name: "origin", URL: "git@github.com:owner/repo.git"}}}}})
+func TestGitHubRemoteParsing(t *testing.T) {
+	valid := []string{
+		"git@github.com:owner/repo.git",
+		"git@github.com:owner/repo.git/",
+		"https://github.com/owner/repo.git",
+		"https://github.com/owner/repo",
+		"https://github.com/owner/repo/",
+		"ssh://git@github.com/owner/repo.git",
+	}
+	for _, raw := range valid {
+		remote, ok := parseGitHubRemote(raw)
+		if !ok || remote.Owner != "owner" || remote.Name != "repo" {
+			t.Fatalf("parseGitHubRemote(%q) = %#v, %v", raw, remote, ok)
+		}
+	}
+
+	invalid := []string{
+		"git@example.com:owner/repo.git",
+		"http://github.com/owner/repo",
+		"git://github.com/owner/repo",
+		"https://notgithub.com/owner/repo",
+		"https://github.com/owner",
+		"https://github.com/owner/repo/extra",
+		"github.com/owner/repo",
+		"ssh://github.com/owner/repo.git",
+		"ssh://user@github.com/owner/repo.git",
+	}
+	for _, raw := range invalid {
+		if remote, ok := parseGitHubRemote(raw); ok {
+			t.Fatalf("parseGitHubRemote(%q) unexpectedly matched %#v", raw, remote)
+		}
+	}
+}
+
+func TestDetectContextSkipsNonBranchReviewModes(t *testing.T) {
+	provider := githubProvider{newGraphQLClient: func() (graphQLDoer, error) {
+		t.Fatal("non-branch detection should not create a GraphQL client")
+		return nil, nil
+	}}
+	review := plugin.ReviewContext{Repository: plugin.RepositoryMetadata{Remotes: []plugin.GitRemote{{Name: "origin", URL: "git@github.com:owner/repo.git"}}, CurrentBranch: "feature", DefaultBranch: "main"}, Target: plugin.ReviewTargetMetadata{Mode: "upstream", HeadRef: "HEAD"}}
+
+	result, err := provider.DetectContext(context.Background(), plugin.DetectContextRequest{Context: review})
+
+	if err != nil {
+		t.Fatalf("DetectContext returned error: %v", err)
+	}
+	if result.Result.Applicable || !strings.Contains(result.Result.Reason, "branch mode") {
+		t.Fatalf("expected non-branch mode to be not applicable without sync failure: %#v", result)
+	}
+}
+
+func TestLoadRemoteSnapshotSkipsNonBranchReviewModes(t *testing.T) {
+	provider := githubProvider{newGraphQLClient: func() (graphQLDoer, error) {
+		t.Fatal("non-branch snapshot should not create a GraphQL client")
+		return nil, nil
+	}}
+	review := plugin.ReviewContext{Repository: plugin.RepositoryMetadata{Remotes: []plugin.GitRemote{{Name: "origin", URL: "git@github.com:owner/repo.git"}}, CurrentBranch: "feature", DefaultBranch: "main"}, Target: plugin.ReviewTargetMetadata{Mode: "range", BaseRef: "main", HeadRef: "HEAD"}}
+
+	_, err := provider.LoadRemoteSnapshot(context.Background(), plugin.LoadRemoteSnapshotRequest{Context: review})
+
+	if plugin.AsError(err) == nil || plugin.AsError(err).Code != plugin.ErrorNotApplicable || !strings.Contains(err.Error(), "branch mode") {
+		t.Fatalf("expected non-branch snapshot to be not applicable, got %v", err)
+	}
+}
+
+func TestDetectContextRequiresMatchingGitHubPullRequest(t *testing.T) {
+	list := ghPRListResponse{}
+	list.Repository.PullRequests.Nodes = []ghPRNode{{Number: 12, URL: "https://github.com/owner/repo/pull/12", BaseRefName: "main", HeadRefName: "feature"}}
+	provider := githubProvider{newGraphQLClient: func() (graphQLDoer, error) { return &fakeGraphQLClient{listPages: []ghPRListResponse{list}}, nil }}
+	review := plugin.ReviewContext{Repository: plugin.RepositoryMetadata{Remotes: []plugin.GitRemote{{Name: "origin", URL: "git@github.com:owner/repo.git"}}, CurrentBranch: "feature", DefaultBranch: "main"}, Target: plugin.ReviewTargetMetadata{Mode: "branch"}}
+	result, err := provider.DetectContext(context.Background(), plugin.DetectContextRequest{Context: review})
 	if err != nil {
 		t.Fatalf("DetectContext returned error: %v", err)
 	}
 	if !result.Result.Applicable {
-		t.Fatalf("expected GitHub remote to be applicable: %#v", result)
+		t.Fatalf("expected matching GitHub PR to be applicable: %#v", result)
+	}
+
+	list.Repository.PullRequests.Nodes = []ghPRNode{{Number: 13, BaseRefName: "main", HeadRefName: "other"}}
+	provider = githubProvider{newGraphQLClient: func() (graphQLDoer, error) { return &fakeGraphQLClient{listPages: []ghPRListResponse{list}}, nil }}
+	result, err = provider.DetectContext(context.Background(), plugin.DetectContextRequest{Context: review})
+	if err != nil {
+		t.Fatalf("DetectContext returned error: %v", err)
+	}
+	if result.Result.Applicable || !strings.Contains(result.Result.Reason, "no matching") {
+		t.Fatalf("expected no matching PR to be unavailable: %#v", result)
+	}
+
+	result, err = provider.DetectContext(context.Background(), plugin.DetectContextRequest{Context: plugin.ReviewContext{Repository: plugin.RepositoryMetadata{Remotes: []plugin.GitRemote{{Name: "origin", URL: "https://example.com/github.com/owner/repo"}}}}})
+	if err != nil {
+		t.Fatalf("DetectContext returned error: %v", err)
+	}
+	if result.Result.Applicable {
+		t.Fatalf("expected malformed/non-GitHub remote to be rejected: %#v", result)
+	}
+}
+
+func TestGitHubPRMatching(t *testing.T) {
+	tests := []struct {
+		name       string
+		ctx        plugin.ReviewContext
+		prs        []githubPRCandidate
+		wantNumber int
+		wantErr    string
+	}{
+		{
+			name:       "branch mode matches current head branch and default base fallback",
+			ctx:        plugin.ReviewContext{Repository: plugin.RepositoryMetadata{CurrentBranch: "feature", DefaultBranch: "main"}, Target: plugin.ReviewTargetMetadata{Mode: "branch"}},
+			prs:        []githubPRCandidate{{Number: 1, BaseRef: "main", HeadRef: "feature", HeadRepoOwner: "owner", HeadRepoName: "repo"}},
+			wantNumber: 1,
+		},
+		{
+			name:       "range mode uses target base and head refs",
+			ctx:        plugin.ReviewContext{Repository: plugin.RepositoryMetadata{DefaultBranch: "main"}, Target: plugin.ReviewTargetMetadata{Mode: "range", BaseRef: "release", HeadRef: "topic"}},
+			prs:        []githubPRCandidate{{Number: 2, BaseRef: "release", HeadRef: "topic", HeadRepoOwner: "owner", HeadRepoName: "repo"}},
+			wantNumber: 2,
+		},
+		{
+			name:       "fork PR matches branch even when head repository differs from base remote",
+			ctx:        plugin.ReviewContext{Repository: plugin.RepositoryMetadata{CurrentBranch: "feature", DefaultBranch: "main"}, Target: plugin.ReviewTargetMetadata{Mode: "branch"}},
+			prs:        []githubPRCandidate{{Number: 3, BaseRef: "main", HeadRef: "feature", HeadRepoOwner: "forker", HeadRepoName: "repo"}},
+			wantNumber: 3,
+		},
+		{
+			name:       "detached range-only SHA matches exact head SHA",
+			ctx:        plugin.ReviewContext{Repository: plugin.RepositoryMetadata{DefaultBranch: "main"}, Target: plugin.ReviewTargetMetadata{Mode: "range", HeadSHA: "abc123"}},
+			prs:        []githubPRCandidate{{Number: 4, BaseRef: "main", HeadSHA: "abc123"}},
+			wantNumber: 4,
+		},
+		{
+			name:       "HEAD pseudo ref falls through to exact head SHA",
+			ctx:        plugin.ReviewContext{Repository: plugin.RepositoryMetadata{DefaultBranch: "main"}, Target: plugin.ReviewTargetMetadata{Mode: "range", HeadRef: "HEAD", HeadSHA: "def456"}},
+			prs:        []githubPRCandidate{{Number: 9, BaseRef: "main", HeadRef: "feature", HeadSHA: "def456"}},
+			wantNumber: 9,
+		},
+		{
+			name:       "matching branch accepts local unpushed head SHA from local remote",
+			ctx:        plugin.ReviewContext{Repository: plugin.RepositoryMetadata{Remotes: []plugin.GitRemote{{URL: "git@github.com:owner/repo.git"}}, CurrentBranch: "feature", DefaultBranch: "main"}, Target: plugin.ReviewTargetMetadata{Mode: "branch", HeadSHA: "local-unpushed"}},
+			prs:        []githubPRCandidate{{Number: 10, BaseRef: "main", HeadRef: "feature", HeadRepoOwner: "owner", HeadRepoName: "repo", HeadSHA: "remote-pr-head"}},
+			wantNumber: 10,
+		},
+		{
+			name:    "matching branch rejects another fork with different SHA",
+			ctx:     plugin.ReviewContext{Repository: plugin.RepositoryMetadata{Remotes: []plugin.GitRemote{{URL: "git@github.com:owner/repo.git"}}, CurrentBranch: "feature", DefaultBranch: "main"}, Target: plugin.ReviewTargetMetadata{Mode: "branch", HeadSHA: "local-head"}},
+			prs:     []githubPRCandidate{{Number: 11, BaseRef: "main", HeadRef: "feature", HeadRepoOwner: "other", HeadRepoName: "repo", HeadSHA: "other-head"}},
+			wantErr: plugin.ErrorNotApplicable,
+		},
+		{
+			name:       "matching branch accepts another fork when SHA matches",
+			ctx:        plugin.ReviewContext{Repository: plugin.RepositoryMetadata{Remotes: []plugin.GitRemote{{URL: "git@github.com:owner/repo.git"}}, CurrentBranch: "feature", DefaultBranch: "main"}, Target: plugin.ReviewTargetMetadata{Mode: "branch", HeadSHA: "same-head"}},
+			prs:        []githubPRCandidate{{Number: 12, BaseRef: "main", HeadRef: "feature", HeadRepoOwner: "other", HeadRepoName: "repo", HeadSHA: "same-head"}},
+			wantNumber: 12,
+		},
+		{
+			name:    "ambiguous multiple matches returns not applicable",
+			ctx:     plugin.ReviewContext{Repository: plugin.RepositoryMetadata{CurrentBranch: "feature", DefaultBranch: "main"}, Target: plugin.ReviewTargetMetadata{Mode: "branch"}},
+			prs:     []githubPRCandidate{{Number: 5, BaseRef: "main", HeadRef: "feature"}, {Number: 6, BaseRef: "main", HeadRef: "feature"}},
+			wantErr: plugin.ErrorNotApplicable,
+		},
+		{
+			name:    "default branch fallback does not override explicit base ref",
+			ctx:     plugin.ReviewContext{Repository: plugin.RepositoryMetadata{CurrentBranch: "feature", DefaultBranch: "main"}, Target: plugin.ReviewTargetMetadata{Mode: "branch", BaseRef: "release"}},
+			prs:     []githubPRCandidate{{Number: 7, BaseRef: "main", HeadRef: "feature"}},
+			wantErr: plugin.ErrorNotApplicable,
+		},
+		{
+			name:    "no match returns not applicable",
+			ctx:     plugin.ReviewContext{Repository: plugin.RepositoryMetadata{CurrentBranch: "feature", DefaultBranch: "main"}, Target: plugin.ReviewTargetMetadata{Mode: "branch"}},
+			prs:     []githubPRCandidate{{Number: 8, BaseRef: "main", HeadRef: "other"}},
+			wantErr: plugin.ErrorNotApplicable,
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got, err := matchGitHubPR(tt.ctx, tt.prs)
+			if tt.wantErr != "" {
+				if plugin.AsError(err) == nil || plugin.AsError(err).Code != tt.wantErr {
+					t.Fatalf("expected error %q, got %v", tt.wantErr, err)
+				}
+				return
+			}
+			if err != nil {
+				t.Fatalf("matchGitHubPR returned error: %v", err)
+			}
+			if got.Number != tt.wantNumber {
+				t.Fatalf("expected PR %d, got %#v", tt.wantNumber, got)
+			}
+		})
 	}
 }
 
@@ -52,6 +232,96 @@ func TestPublishReviewRejectsMalformedGitHubReviewResponse(t *testing.T) {
 	_, err := provider.PublishReview(context.Background(), plugin.PublishReviewParams{})
 	if plugin.AsError(err) == nil || plugin.AsError(err).Code != plugin.ErrorRemoteValidationFailed {
 		t.Fatalf("expected remote_validation_failed, got %v", err)
+	}
+}
+
+func TestPublishReviewFallsBackToGHCLIWhenGraphQLHasNoMatch(t *testing.T) {
+	list := ghPRListResponse{}
+	list.Repository.PullRequests.Nodes = []ghPRNode{{Number: 88, URL: "https://github.com/owner/repo/pull/88", BaseRefName: "main", HeadRefName: "other"}}
+	var calls [][]string
+	provider := githubProvider{
+		newGraphQLClient: func() (graphQLDoer, error) { return &fakeGraphQLClient{listPages: []ghPRListResponse{list}}, nil },
+		execGH: func(_ context.Context, args ...string) (string, string, error) {
+			calls = append(calls, slices.Clone(args))
+			if len(calls) == 1 {
+				return `{"number": 12, "url": "https://github.com/owner/repo/pull/12"}`, "", nil
+			}
+			return `{"id": 99, "html_url": "https://github.com/owner/repo/pull/12#pullrequestreview-99"}`, "", nil
+		},
+	}
+
+	_, err := provider.PublishReview(context.Background(), plugin.PublishReviewParams{Payload: plugin.ReviewPublishPayload{Context: plugin.ReviewContext{Repository: plugin.RepositoryMetadata{Remotes: []plugin.GitRemote{{URL: "git@github.com:owner/repo.git"}}, CurrentBranch: "feature", DefaultBranch: "main"}, Target: plugin.ReviewTargetMetadata{Mode: "branch"}}, Draft: plugin.ReviewDraftSnapshot{Summary: "summary"}}})
+	if err != nil {
+		t.Fatalf("PublishReview returned error: %v", err)
+	}
+	if len(calls) != 2 || !strings.Contains(strings.Join(calls[0], "\x00"), "pr\x00view") {
+		t.Fatalf("expected gh pr view fallback then publish, got %#v", calls)
+	}
+}
+
+func TestLoadRemoteSnapshotContinuesAfterRemoteListError(t *testing.T) {
+	upstreamList := ghPRListResponse{}
+	upstreamList.Repository.PullRequests.Nodes = []ghPRNode{{Number: 2, BaseRefName: "main", HeadRefName: "feature", HeadRepositoryOwner: &ghActor{Login: "upstream"}, HeadRepository: &struct {
+		Name string `json:"name"`
+	}{Name: "repo"}}}
+	snapshot := ghPRSnapshotResponse{}
+	snapshot.Repository.PullRequest = ghPRNode{Number: 2, URL: "https://github.com/upstream/repo/pull/2", Title: "PR", BaseRefName: "main", HeadRefName: "feature"}
+	fake := &fakeGraphQLClient{listErrs: []error{plugin.NewError(plugin.ErrorNetwork, "remote unavailable")}, listPages: []ghPRListResponse{{}, upstreamList}, snapshotPages: []ghPRSnapshotResponse{snapshot}}
+	provider := githubProvider{newGraphQLClient: func() (graphQLDoer, error) { return fake, nil }}
+
+	got, err := provider.LoadRemoteSnapshot(context.Background(), plugin.LoadRemoteSnapshotRequest{Context: plugin.ReviewContext{Repository: plugin.RepositoryMetadata{Remotes: []plugin.GitRemote{{Name: "origin", URL: "git@github.com:fork/repo.git"}, {Name: "upstream", URL: "git@github.com:upstream/repo.git"}}, CurrentBranch: "feature", DefaultBranch: "main"}, Target: plugin.ReviewTargetMetadata{Mode: "branch"}}})
+
+	if err != nil {
+		t.Fatalf("LoadRemoteSnapshot returned error: %v", err)
+	}
+	if fake.listCalls != 2 || got.Overview == nil || got.Overview.Number != 2 {
+		t.Fatalf("expected second remote PR match after first remote error, calls=%d snapshot=%#v", fake.listCalls, got.Overview)
+	}
+}
+
+func TestLoadRemoteSnapshotSearchesAllGitHubRemotes(t *testing.T) {
+	forkList := ghPRListResponse{}
+	forkList.Repository.PullRequests.Nodes = []ghPRNode{{Number: 1, BaseRefName: "main", HeadRefName: "other"}}
+	upstreamList := ghPRListResponse{}
+	upstreamList.Repository.PullRequests.Nodes = []ghPRNode{{Number: 2, BaseRefName: "main", HeadRefName: "feature"}}
+	snapshot := ghPRSnapshotResponse{}
+	snapshot.Repository.PullRequest = ghPRNode{Number: 2, URL: "https://github.com/upstream/repo/pull/2", Title: "PR", BaseRefName: "main", HeadRefName: "feature"}
+	fake := &fakeGraphQLClient{listPages: []ghPRListResponse{forkList, upstreamList}, snapshotPages: []ghPRSnapshotResponse{snapshot}}
+	provider := githubProvider{newGraphQLClient: func() (graphQLDoer, error) { return fake, nil }}
+
+	got, err := provider.LoadRemoteSnapshot(context.Background(), plugin.LoadRemoteSnapshotRequest{Context: plugin.ReviewContext{Repository: plugin.RepositoryMetadata{Remotes: []plugin.GitRemote{{Name: "origin", URL: "git@github.com:fork/repo.git"}, {Name: "upstream", URL: "git@github.com:upstream/repo.git"}}, CurrentBranch: "feature", DefaultBranch: "main"}, Target: plugin.ReviewTargetMetadata{Mode: "branch"}}})
+	if err != nil {
+		t.Fatalf("LoadRemoteSnapshot returned error: %v", err)
+	}
+	if fake.listCalls != 2 || got.Overview == nil || got.Overview.Number != 2 {
+		t.Fatalf("expected upstream PR match, calls=%d snapshot=%#v", fake.listCalls, got.Overview)
+	}
+}
+
+func TestPublishReviewUsesGraphQLMatchedPullRequestWhenContextHasRemote(t *testing.T) {
+	list := ghPRListResponse{}
+	list.Repository.PullRequests.Nodes = []ghPRNode{{Number: 77, URL: "https://github.com/owner/repo/pull/77", BaseRefName: "release", HeadRefName: "topic"}}
+	var calls [][]string
+	provider := githubProvider{
+		newGraphQLClient: func() (graphQLDoer, error) { return &fakeGraphQLClient{listPages: []ghPRListResponse{list}}, nil },
+		execGH: func(_ context.Context, args ...string) (string, string, error) {
+			calls = append(calls, slices.Clone(args))
+			return `{"id": 77, "html_url": "https://github.com/owner/repo/pull/77#pullrequestreview-77"}`, "", nil
+		},
+	}
+	_, err := provider.PublishReview(context.Background(), plugin.PublishReviewParams{Payload: plugin.ReviewPublishPayload{
+		Context: plugin.ReviewContext{Repository: plugin.RepositoryMetadata{Remotes: []plugin.GitRemote{{URL: "git@github.com:owner/repo.git"}}}, Target: plugin.ReviewTargetMetadata{Mode: "range", BaseRef: "release", HeadRef: "topic"}},
+		Draft:   plugin.ReviewDraftSnapshot{Summary: "summary"},
+	}})
+	if err != nil {
+		t.Fatalf("PublishReview returned error: %v", err)
+	}
+	if len(calls) != 1 {
+		t.Fatalf("expected only publish gh call, got %#v", calls)
+	}
+	joined := strings.Join(calls[0], "\x00")
+	if strings.Contains(joined, "pr\x00view") || !strings.Contains(joined, "pulls/77/reviews") {
+		t.Fatalf("publish did not use GraphQL-matched PR: %#v", calls[0])
 	}
 }
 

@@ -20,6 +20,10 @@ type ReviewProvider interface {
 	PublishReview(ctx context.Context, req PublishReviewParams) (PublishReviewResultData, error)
 }
 
+type RemoteSnapshotProvider interface {
+	LoadRemoteSnapshot(ctx context.Context, req LoadRemoteSnapshotRequest) (LoadRemoteSnapshotResult, error)
+}
+
 // ServeReviewProvider runs the JSON-lines protocol server loop. It reads
 // requests from stdin, dispatches to the provider, and writes responses to
 // stdout. The server returns after EOF on stdin or when ctx is cancelled.
@@ -68,6 +72,8 @@ func dispatch(ctx context.Context, provider ReviewProvider, req protocol.Request
 		return handleDetectContext(ctx, provider, req)
 	case "load_remote_threads":
 		return handleLoadRemoteThreads(ctx, provider, req)
+	case "load_remote_snapshot":
+		return handleLoadRemoteSnapshot(ctx, provider, req)
 	case "publish_review":
 		return handlePublishReview(ctx, provider, req)
 	default:
@@ -126,6 +132,22 @@ func handleLoadRemoteThreads(ctx context.Context, provider ReviewProvider, req p
 		return protocol.Response{ID: req.ID, Error: toProtocolError(err)}
 	}
 
+	return protocol.Response{ID: req.ID, Result: result}
+}
+
+func handleLoadRemoteSnapshot(ctx context.Context, provider ReviewProvider, req protocol.Request) protocol.Response {
+	snapshotProvider, ok := provider.(RemoteSnapshotProvider)
+	if !ok {
+		return protocol.Response{ID: req.ID, Error: protocol.NewError(ErrorUnsupportedCapability, "method not supported: load_remote_snapshot")}
+	}
+	var params protocol.LoadRemoteSnapshotRequest
+	if err := json.Unmarshal(req.Params, &params); err != nil {
+		return protocol.Response{ID: req.ID, Error: protocol.NewError(ErrorInvalidRequest, "invalid load_remote_snapshot params: "+err.Error())}
+	}
+	result, err := snapshotProvider.LoadRemoteSnapshot(ctx, params)
+	if err != nil {
+		return protocol.Response{ID: req.ID, Error: toProtocolError(err)}
+	}
 	return protocol.Response{ID: req.ID, Result: result}
 }
 

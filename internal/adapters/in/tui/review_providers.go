@@ -2,6 +2,7 @@ package tui
 
 import (
 	"fmt"
+	"time"
 
 	tea "charm.land/bubbletea/v2"
 
@@ -11,7 +12,18 @@ import (
 	"ero/internal/ports"
 )
 
+type reviewProvidersLoadedMsg struct {
+	infos   []core.ReviewProviderInfo
+	threads []core.RemoteReviewThread
+	clients map[ports.ReviewProviderClient]core.ReviewProviderInfo
+	errs    []string
+}
+
 func (m Model) closeReviewProvidersCmd() tea.Cmd {
+	if m.activeProvider != nil {
+		activeProvider := m.activeProvider
+		return func() tea.Msg { _ = activeProvider.Close(); return nil }
+	}
 	providers := append([]ports.ReviewProviderClient(nil), m.reviewProviders...)
 	return func() tea.Msg {
 		for _, provider := range providers {
@@ -19,6 +31,120 @@ func (m Model) closeReviewProvidersCmd() tea.Cmd {
 		}
 		return nil
 	}
+}
+
+func (m Model) startActiveProviderCmd() tea.Cmd {
+	activeProvider := m.activeProvider
+	if activeProvider == nil || !m.activeProviderSyncEnabled() {
+		return nil
+	}
+	ctx := m.ctx
+	reviewContext := m.reviewContext
+	return func() tea.Msg {
+		catalog, catalogErr := activeProvider.Catalog(ctx)
+		state, err := activeProvider.Start(ctx, reviewContext)
+		// Provider switching needs the catalog, so surface catalog failure even when start succeeds.
+		if err == nil {
+			err = catalogErr
+		}
+		return activeProviderStartedMsg{catalog: catalog, state: state, err: err}
+	}
+}
+
+func (m Model) refreshActiveProviderCmd(manual bool) tea.Cmd {
+	activeProvider := m.activeProvider
+	if activeProvider == nil || !m.activeProviderSyncEnabled() {
+		return nil
+	}
+	ctx := m.ctx
+	reviewContext := m.reviewContext
+	return func() tea.Msg {
+		state, err := activeProvider.Refresh(ctx, reviewContext, manual)
+		return activeProviderRefreshedMsg{state: state, err: err}
+	}
+}
+
+func (m Model) switchActiveProviderCmd(stableKey string) tea.Cmd {
+	activeProvider := m.activeProvider
+	if activeProvider == nil || !m.activeProviderSyncEnabled() {
+		return nil
+	}
+	ctx := m.ctx
+	reviewContext := m.reviewContext
+	return func() tea.Msg {
+		state, err := activeProvider.Switch(ctx, reviewContext, stableKey)
+		return activeProviderSwitchedMsg{stableKey: stableKey, state: state, err: err}
+	}
+}
+
+func (m Model) scheduleActiveProviderPollCmd() tea.Cmd {
+	if m.activeProvider == nil || !m.activeProviderSyncEnabled() || m.providerSyncState.NextSyncAt == nil {
+		return nil
+	}
+	delay := max(time.Until(*m.providerSyncState.NextSyncAt), 0)
+	generation := m.activeProvider.Generation()
+	return tea.Tick(delay, func(time.Time) tea.Msg { return activeProviderPollDueMsg{generation: generation} })
+}
+
+func (m Model) completeActiveProviderTimerCmd(generation int64) tea.Cmd {
+	activeProvider := m.activeProvider
+	if activeProvider == nil || !m.activeProviderSyncEnabled() {
+		return nil
+	}
+	ctx := m.ctx
+	reviewContext := m.reviewContext
+	return func() tea.Msg {
+		state, err := activeProvider.CompleteTimer(ctx, reviewContext, generation)
+		return activeProviderRefreshedMsg{state: state, err: err}
+	}
+}
+
+func (m Model) statusProviderCount() int {
+	if m.activeProvider != nil {
+		return len(m.providerCatalog)
+	}
+	return len(m.providerInfos)
+}
+
+func (m Model) canSwitchProvider() bool {
+	return m.activeProvider != nil && m.activeProviderSyncEnabled() && len(m.providerCatalog) > 0
+}
+
+func (m Model) activeProviderSyncEnabled() bool {
+	mode := m.reviewContext.Target.Mode
+	if mode == "" {
+		mode = m.request.DiffMode
+	}
+	if mode == "" {
+		mode = core.DiffModeBranch
+	}
+	return mode == core.DiffModeBranch
+}
+
+func (m *Model) applyActiveProviderState(state ActiveProviderState) {
+	m.activeProviderKey = state.StableProviderKey
+	m.activeRuntimeID = state.RuntimeProviderID
+	m.activeRuntimeInfo = state.RuntimeInfo
+	m.providerSyncState = state.Snapshot.Sync
+	m.providerOverview = state.Snapshot.Overview
+	m.remoteThreads = append([]core.RemoteReviewThread(nil), state.Snapshot.Threads...)
+	if state.RuntimeInfo.ID != "" {
+		m.providerInfos = []core.ReviewProviderInfo{state.RuntimeInfo}
+	} else {
+		m.providerInfos = nil
+	}
+	m.providerInfoByClient = map[ports.ReviewProviderClient]core.ReviewProviderInfo{}
+}
+
+func (m *Model) clearActiveProviderRemoteData() {
+	m.activeProviderKey = ""
+	m.activeRuntimeID = ""
+	m.activeRuntimeInfo = core.ReviewProviderInfo{}
+	m.providerSyncState = core.ProviderSyncState{}
+	m.providerOverview = nil
+	m.remoteThreads = nil
+	m.providerInfos = nil
+	m.providerInfoByClient = map[ports.ReviewProviderClient]core.ReviewProviderInfo{}
 }
 
 func (m Model) loadReviewProvidersCmd() tea.Cmd {

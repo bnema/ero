@@ -133,7 +133,7 @@ func TestRunDetectsStartupModeWhenNoExplicitCommand(t *testing.T) {
 	}{
 		{name: "working changes", state: core.StartupState{HasUnstagedChanges: true}, wantMode: core.DiffModeWorking},
 		{name: "staged changes", state: core.StartupState{HasStagedChanges: true}, wantMode: core.DiffModeStaged},
-		{name: "ahead of upstream", state: core.StartupState{HasUpstream: true, Ahead: 1}, wantMode: core.DiffModeUpstream},
+		{name: "ahead of upstream with default branch", state: core.StartupState{HasUpstream: true, Ahead: 1, HasDefaultBranch: true}, wantMode: core.DiffModeBranch},
 		{name: "mixed prompts and uses selected mode", state: core.StartupState{HasStagedChanges: true, HasUnstagedChanges: true}, promptMode: core.DiffModeLocal, wantMode: core.DiffModeLocal},
 		{name: "mixed non-interactive errors", state: core.StartupState{HasStagedChanges: true, HasUnstagedChanges: true}, wantErr: "choose explicitly"},
 	}
@@ -246,27 +246,32 @@ func TestRunLoadsReviewAndRunsTUIWithConfig(t *testing.T) {
 	}
 }
 
-func TestBuildReviewProvidersDelegatesToLoader(t *testing.T) {
+func TestBuildReviewProvidersUsesDescriptorsAndFactory(t *testing.T) {
 	t.Parallel()
 
 	ctx := context.Background()
+	descriptor := ports.ReviewProviderDescriptor{Key: "plugin@1.0.0/github", ContributionID: "github"}
 	provider := mocks.NewMockReviewProviderClient(t)
-	loader := mocks.NewMockReviewProviderLoader(t)
-	loader.EXPECT().LoadReviewProviders(ctx).Return([]ports.ReviewProviderClient{provider}, nil)
+	catalog := mocks.NewMockReviewProviderCatalog(t)
+	catalog.EXPECT().ListReviewProviderDescriptors(ctx).Return([]ports.ReviewProviderDescriptor{descriptor}, nil)
+	factory := mocks.NewMockReviewProviderClientFactory(t)
+	factory.EXPECT().CreateReviewProviderClient(ctx, descriptor).Return(provider, nil)
 
-	providers, err := buildReviewProviders(ctx, loader)
+	providers, err := buildReviewProviders(ctx, catalog, factory)
 	require.NoError(t, err)
 	require.Equal(t, []ports.ReviewProviderClient{provider}, providers)
 }
 
 func TestBuildReviewContext(t *testing.T) {
-	metadata := &fakeGitMetadataReader{
-		worktreeRoot:  "/repo",
-		currentBranch: "feature",
-		defaultBranch: "main",
-		headSHA:       "headsha",
-		remotes:       []ports.GitRemoteInfo{{Name: "origin", URL: "git@example.com:repo.git"}},
-	}
+	metadata := mocks.NewMockGitMetadataReader(t)
+	metadata.EXPECT().WorktreeRoot("/repo").Return("/repo", nil)
+	metadata.EXPECT().CurrentBranch("/repo").Return("feature", nil)
+	metadata.EXPECT().DefaultBranch("/repo").Return("main", nil)
+	metadata.EXPECT().HeadSHA("/repo").Return("headsha", nil)
+	metadata.EXPECT().Remotes("/repo").Return([]ports.GitRemoteInfo{{Name: "origin", URL: "git@example.com:repo.git"}}, nil)
+	metadata.EXPECT().ResolveRevision("/repo", "main").Return("mainsha", nil)
+	metadata.EXPECT().ResolveRevision("/repo", "feature").Return("featuresha", nil)
+	metadata.EXPECT().MergeBase("/repo", "main", "feature").Return("mergebase", nil)
 	ctx := buildReviewContext(core.ReviewRequest{RepoPath: "/repo", DiffMode: core.DiffModeRange, BaseRevision: "main", HeadRevision: "feature"}, []core.ReviewFile{{
 		Path:    "demo.go",
 		OldPath: "old_demo.go",
@@ -298,7 +303,13 @@ func TestBuildReviewContext(t *testing.T) {
 }
 
 func TestBuildReviewContextMetadataBestEffort(t *testing.T) {
-	ctx := buildReviewContext(core.ReviewRequest{RepoPath: "/repo", DiffMode: core.DiffModeBranch}, minimalReviewFiles(), &fakeGitMetadataReader{err: errors.New("git unavailable")}, "dev")
+	metadata := mocks.NewMockGitMetadataReader(t)
+	metadata.EXPECT().WorktreeRoot("/repo").Return("", errors.New("git unavailable"))
+	metadata.EXPECT().CurrentBranch("/repo").Return("", errors.New("git unavailable"))
+	metadata.EXPECT().DefaultBranch("/repo").Return("", errors.New("git unavailable"))
+	metadata.EXPECT().HeadSHA("/repo").Return("", errors.New("git unavailable"))
+	metadata.EXPECT().Remotes("/repo").Return(nil, errors.New("git unavailable"))
+	ctx := buildReviewContext(core.ReviewRequest{RepoPath: "/repo", DiffMode: core.DiffModeBranch}, minimalReviewFiles(), metadata, "dev")
 	require.Equal(t, "/repo", ctx.Repository.RepoPath)
 	require.Empty(t, ctx.Repository.WorktreeRoot)
 	require.NotEmpty(t, ctx.Session.IdempotencyKey)
@@ -314,29 +325,6 @@ func minimalReviewFiles() []core.ReviewFile {
 		}},
 	}}
 }
-
-type fakeGitMetadataReader struct {
-	worktreeRoot  string
-	currentBranch string
-	defaultBranch string
-	headSHA       string
-	remotes       []ports.GitRemoteInfo
-	err           error
-}
-
-func (f *fakeGitMetadataReader) WorktreeRoot(string) (string, error)  { return f.worktreeRoot, f.err }
-func (f *fakeGitMetadataReader) CurrentBranch(string) (string, error) { return f.currentBranch, f.err }
-func (f *fakeGitMetadataReader) HeadSHA(string) (string, error)       { return f.headSHA, f.err }
-func (f *fakeGitMetadataReader) Remotes(string) ([]ports.GitRemoteInfo, error) {
-	return f.remotes, f.err
-}
-func (f *fakeGitMetadataReader) MergeBase(string, string, string) (string, error) {
-	return "mergebase", f.err
-}
-func (f *fakeGitMetadataReader) ResolveRevision(_ string, revision string) (string, error) {
-	return revision + "sha", f.err
-}
-func (f *fakeGitMetadataReader) DefaultBranch(string) (string, error) { return f.defaultBranch, f.err }
 
 type fakeStartupPrompt struct {
 	mode core.DiffMode

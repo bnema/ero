@@ -33,6 +33,7 @@ type Client struct {
 	nextID         int
 	timeout        time.Duration
 	contributionID string
+	providerInfo   core.ReviewProviderInfo
 	closed         bool
 }
 
@@ -93,7 +94,11 @@ func (c *Client) Initialize(ctx context.Context) (core.ReviewProviderInfo, error
 		return core.ReviewProviderInfo{}, fmt.Errorf("plugin protocol mismatch: expected %q, got %q", protocol.ProtocolVersion, result.Protocol)
 	}
 
-	return toCoreProviderInfo(result.Provider), nil
+	info := toCoreProviderInfo(result.Provider)
+	c.mu.Lock()
+	c.providerInfo = info
+	c.mu.Unlock()
+	return info, nil
 }
 
 // DetectContext asks the plugin whether it considers the review context
@@ -126,6 +131,24 @@ func (c *Client) LoadRemoteThreads(ctx context.Context, review core.ReviewContex
 		threads[i] = toCoreRemoteThread(t)
 	}
 	return threads, nil
+}
+
+func (c *Client) LoadRemoteSnapshot(ctx context.Context, review core.ReviewContext) (core.ProviderSnapshot, error) {
+	c.mu.Lock()
+	info := c.providerInfo
+	c.mu.Unlock()
+	if !info.Capabilities.LoadRemoteSnapshot {
+		threads, err := c.LoadRemoteThreads(ctx, review)
+		if err != nil {
+			return core.ProviderSnapshot{}, err
+		}
+		return core.ProviderSnapshot{RuntimeProviderID: info.ID, Threads: threads}, nil
+	}
+	var result protocol.LoadRemoteSnapshotResult
+	if err := c.call(ctx, "load_remote_snapshot", protocol.LoadRemoteSnapshotRequest{Context: toProtocolReviewContext(review)}, &result); err != nil {
+		return core.ProviderSnapshot{}, err
+	}
+	return toCoreProviderSnapshot(result, info.ID), nil
 }
 
 // PublishReview sends the draft to the plugin for publication.
@@ -277,7 +300,7 @@ func (c *Client) call(ctx context.Context, method string, params any, result any
 
 		// Check for protocol error.
 		if resp.Error != nil {
-			return resp.Error
+			return toCoreProviderError(resp.Error)
 		}
 
 		// Decode the result into the caller's type.
@@ -314,6 +337,30 @@ var _ ports.ReviewProviderClient = (*Client)(nil)
 
 // ---------- conversion helpers ----------
 
+func toCoreProviderError(err *protocol.Error) error {
+	if err == nil {
+		return nil
+	}
+	kind := core.ProviderErrorInternal
+	switch err.Code {
+	case protocol.ErrorAuthRequired:
+		kind = core.ProviderErrorAuthenticationRequired
+	case protocol.ErrorNotApplicable:
+		kind = core.ProviderErrorNotApplicable
+	case protocol.ErrorUnsupportedCapability:
+		kind = core.ProviderErrorUnsupportedCapability
+	case protocol.ErrorRemoteRateLimited:
+		kind = core.ProviderErrorRateLimited
+	case protocol.ErrorNetwork:
+		kind = core.ProviderErrorTransientNetwork
+	case protocol.ErrorRemoteValidationFailed, protocol.ErrorInvalidRequest:
+		kind = core.ProviderErrorRemoteValidation
+	case protocol.ErrorInternal, protocol.ErrorPartialPublishUnknown:
+		kind = core.ProviderErrorInternal
+	}
+	return core.NewProviderError(kind, err.Error(), err)
+}
+
 func toCoreProviderInfo(info protocol.ReviewProviderInfo) core.ReviewProviderInfo {
 	decisions := make([]core.ReviewDecision, len(info.Capabilities.Decisions))
 	for i, d := range info.Capabilities.Decisions {
@@ -325,6 +372,7 @@ func toCoreProviderInfo(info protocol.ReviewProviderInfo) core.ReviewProviderInf
 		Name:  info.Name,
 		Capabilities: core.ReviewProviderCapabilities{
 			LoadRemoteComments: info.Capabilities.LoadRemoteComments,
+			LoadRemoteSnapshot: info.Capabilities.LoadRemoteSnapshot,
 			PublishReview:      info.Capabilities.PublishReview,
 			Decisions:          decisions,
 			IdempotentPublish:  info.Capabilities.IdempotentPublish,
@@ -476,6 +524,51 @@ func toProtocolLineRange(r core.ReviewLineRange) protocol.ReviewLineRange {
 			NewLineNumber: r.End.NewLineNumber,
 			Kind:          string(r.End.Kind),
 		},
+	}
+}
+
+func toCoreProviderSnapshot(s protocol.LoadRemoteSnapshotResult, fallbackProviderID string) core.ProviderSnapshot {
+	threads := make([]core.RemoteReviewThread, len(s.Threads))
+	for i, t := range s.Threads {
+		threads[i] = toCoreRemoteThread(t)
+	}
+	runtimeID := s.RuntimeProviderID
+	if runtimeID == "" {
+		runtimeID = fallbackProviderID
+	}
+	snap := core.ProviderSnapshot{RuntimeProviderID: runtimeID, Threads: threads, Overview: toCoreProviderOverview(s.Overview), Metadata: s.Metadata}
+	if s.FetchedAt != nil {
+		snap.FetchedAt = *s.FetchedAt
+	}
+	snap.ExpiresAt = s.ExpiresAt
+	return snap
+}
+
+func toCoreProviderOverview(o *protocol.ProviderOverview) *core.ProviderOverview {
+	if o == nil {
+		return nil
+	}
+	comments := make([]core.ProviderIssueComment, len(o.Comments))
+	for i, c := range o.Comments {
+		comments[i] = core.ProviderIssueComment{ExternalID: c.ExternalID, Author: c.Author, Body: c.Body, CreatedAt: c.CreatedAt, UpdatedAt: c.UpdatedAt, ExternalURL: c.ExternalURL}
+	}
+	reviews := make([]core.ProviderReviewSummary, len(o.Reviews))
+	for i, r := range o.Reviews {
+		reviews[i] = core.ProviderReviewSummary{ExternalID: r.ExternalID, Author: r.Author, State: r.State, Body: r.Body, SubmittedAt: r.SubmittedAt, ExternalURL: r.ExternalURL}
+	}
+	return &core.ProviderOverview{
+		RuntimeProviderID: o.RuntimeProviderID,
+		Title:             o.Title,
+		Number:            o.Number,
+		State:             o.State,
+		ExternalURL:       o.ExternalURL,
+		Author:            o.Author,
+		Body:              o.Body,
+		BaseRef:           o.BaseRef,
+		HeadRef:           o.HeadRef,
+		UpdatedAt:         o.UpdatedAt,
+		Comments:          comments,
+		Reviews:           reviews,
 	}
 }
 

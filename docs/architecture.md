@@ -72,6 +72,7 @@ It composes:
 - syntax adapter
 - core business/application services
 - startup mode detection and mixed-change prompting
+- active review-provider selection, cache-first sync, polling/backoff, and provider preference storage
 - CLI adapter
 - TUI adapter factories
 
@@ -121,6 +122,8 @@ Initial outbound ports:
 - `StartupStateReader` for smart default launch
 - `FileContentReader`
 - `SyntaxTokenizer`
+- plugin contribution catalogs and selected review-provider client factories
+- normalized provider snapshot cache and active-provider preference storage
 - `ReviewCallbackPublisher` (reserved for later integration)
 
 For v1, the concrete git adapter should be built on top of `github.com/go-git/go-git/v5`.
@@ -131,6 +134,8 @@ If a core service needs external data or side effects, it depends on a port.
 ## TUI composition
 
 The Bubble Tea app should be an orchestrator, not a god object.
+
+Review-provider subprocess lifecycle and sync policy belong to `internal/app`, not the TUI. The TUI consumes active provider state, sends switch/refresh/publish intents, renders sync status and provider overview data, and keeps provider picker rows descriptor/cache-based so inactive providers are not started just for display.
 
 ### Thin app shell
 

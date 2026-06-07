@@ -27,6 +27,7 @@ const (
 // ReviewProviderCapabilities declares what a provider can do.
 type ReviewProviderCapabilities struct {
 	LoadRemoteComments bool             `json:"load_remote_comments"`
+	LoadRemoteSnapshot bool             `json:"load_remote_snapshot,omitempty"`
 	PublishReview      bool             `json:"publish_review"`
 	Decisions          []ReviewDecision `json:"decisions"`
 	IdempotentPublish  bool             `json:"idempotent_publish"`

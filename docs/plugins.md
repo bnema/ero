@@ -2,7 +2,7 @@
 
 Ero plugins are a general extension mechanism based on local subprocesses. A plugin declares one or more contributions in its manifest; future contribution types can extend other parts of Ero, such as themes or additional workflows.
 
-This first release ships the `review_provider` contribution type, which lets plugins publish reviews and load remote review comments.
+The `review_provider` contribution type lets plugins publish reviews, load remote review threads, and provide provider-specific review context such as pull request metadata.
 
 ## Install and manage plugins
 
@@ -48,6 +48,12 @@ label = "Example"
 
 Required fields are `name`, `version`, `manifest_version = "1"`, `protocol = "ero.plugin.v1"`, `runtime.command`, and at least one contribution with `type` and `id`. Contribution type strings are lower snake_case; the currently implemented public contribution type is `review_provider`.
 
+Ero discovers available review providers from installed plugin manifests before starting plugin subprocesses. Each discovered provider has a host-owned stable key derived from a canonical installed-plugin identity plus the contribution `id`; runtime provider IDs returned by `initialize` remain provider-owned metadata and are not used as the host selection key.
+
+Ero keeps the plugin system global while activating only one review provider at a time. The TUI can switch providers, manually refresh the active provider, show cache/sync status, and display provider overview data in the PR sheet. Inactive providers remain descriptors plus cached/previously observed status; Ero does not start inactive provider subprocesses just to populate the picker.
+
+Provider snapshots are normalized Ero data stored under the XDG cache directory. Ero loads cached provider data first, refreshes in the background, and keeps good cached data when refresh fails.
+
 `runtime.command` is executed with the plugin root as the working directory. Keep it stable for installed users; use the optional `build.command` for local development or release packaging.
 
 ## Protocol
@@ -78,10 +84,11 @@ Review provider methods:
 
 - `initialize`: negotiate `ero.plugin.v1`, bind to the requested `contribution_id`, and return provider metadata/capabilities.
 - `detect_context`: decide whether the current repository/review context applies.
-- `load_remote_threads`: return remote review comments when `load_remote_comments` is supported.
+- `load_remote_threads`: return remote review threads when `load_remote_comments` is supported.
+- `load_remote_snapshot`: return remote review threads plus provider overview data when `load_remote_snapshot` is supported. Hosts prefer this method when advertised and fall back to `load_remote_threads` for older providers.
 - `publish_review`: publish a draft review when `publish_review` is supported.
 
-Capabilities include `load_remote_comments`, `publish_review`, supported `decisions` (`comment`, `request_changes`, `approve`), and `idempotent_publish`.
+Capabilities include `load_remote_comments`, `load_remote_snapshot`, `publish_review`, supported `decisions` (`comment`, `request_changes`, `approve`), and `idempotent_publish`.
 
 ## Go SDK
 
@@ -117,7 +124,7 @@ Do not put secrets in `ero-plugin.toml`, command-line arguments, or stdout. Read
 
 Ero ships maintained plugin implementations under `plugins/`:
 
-- `plugins/github`: GitHub review provider. It requires the GitHub CLI (`gh`) installed and authenticated with `gh auth login`; the plugin uses `go-gh`/`gh` for GitHub auth, current-branch PR lookup, and PR review submission. Publishing returns a fast error when the current branch has no associated pull request.
+- `plugins/github`: GitHub review provider. It uses GitHub CLI-compatible authentication through `go-gh`, so `gh auth login` must be configured. The provider parses GitHub remotes, detects the matching pull request for the current branch/range context, fetches PR metadata, issue comments, review summaries, and review threads through GraphQL, and publishes reviews to the matched pull request. Publishing returns a fast error when no matching pull request is available.
 - `plugins/pi-coding-agent`: pi-coding-agent destination. Load its Pi extension, then Ero can publish a review into the matching Pi session as a user message.
 
 Build them with:
@@ -137,6 +144,6 @@ For a one-off development session, `pi -e ./plugins/pi-coding-agent` also works,
 
 The bridge records active sessions in an owner-only runtime registry and uses per-session Unix sockets. Ero selects a session by `PI_CODING_AGENT_SESSION_ID` when set, otherwise by repository path plus branch/SHA when available.
 
-## First-release limitations
+## Current limitations
 
-The first plugin release focuses on review providers launched as local subprocesses. Ero does not provide a sandbox, plugin marketplace, background daemon, automatic secret storage, or full forge implementations. Remote APIs, authentication flows, and provider-specific publish semantics belong in individual plugins.
+Ero review providers run as local subprocesses. Ero does not provide a sandbox, plugin marketplace, background daemon, automatic secret storage, or full forge implementations. Remote APIs, authentication flows, and provider-specific publish semantics belong in individual plugins.
