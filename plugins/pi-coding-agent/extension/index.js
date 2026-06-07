@@ -9,6 +9,7 @@ const STATE_FILE = "sessions.json";
 const REFRESH_INTERVAL_MS = 15_000;
 const MAX_REQUEST_BYTES = 1024 * 1024;
 const CONNECTION_TIMEOUT_MS = 30_000;
+const BRIDGE_STATUS_ICON = "\uf0c1";
 
 export default function eroPiCodingAgentBridge(pi) {
   const token = randomBytes(32).toString("hex");
@@ -150,7 +151,7 @@ export default function eroPiCodingAgentBridge(pi) {
     const previous = readState(statePath).sessions.find((session) => session.session_id === sessionId);
     currentSessionId = sessionId;
     upsertSession(statePath, bridgeSessionRecord(ctx, mergeGitMetadata(previous, git), socketPath, token));
-    ctx.ui.setStatus("ero-pi-coding-agent", `Ero bridge ${sessionId.slice(0, 8)}`);
+    ctx.ui.setStatus("ero-pi-coding-agent", `Ero ${BRIDGE_STATUS_ICON}`);
   }
 
   async function runLifecycle(task) {
