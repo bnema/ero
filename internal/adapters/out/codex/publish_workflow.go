@@ -27,6 +27,7 @@ const (
 	publishErrAmbiguous   publishErrorReason = "ambiguous"
 	publishErrResume      publishErrorReason = "resume"
 	publishErrCreate      publishErrorReason = "create"
+	publishErrPublish     publishErrorReason = "publish"
 	publishErrUnsupported publishErrorReason = "unsupported"
 )
 
@@ -173,7 +174,7 @@ func PublishReview(ctx context.Context, cfg Config, cwd, formattedMessage string
 	if err != nil {
 		return &PublishResult{ThreadID: threadID},
 			&PublishReviewError{
-				Reason:  publishErrResume,
+				Reason:  publishErrPublish,
 				Message: fmt.Sprintf("codex: publish review to thread %s failed: %s", threadID, err),
 				Cause:   err,
 			}

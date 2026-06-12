@@ -2,11 +2,15 @@ package codex
 
 import (
 	"bufio"
+	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
 	"io"
+	"os"
+	"os/exec"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 )
@@ -372,6 +376,304 @@ func TestResumeThreadRejectsErrorResponse(t *testing.T) {
 	case <-serverErr:
 	default:
 	}
+}
+
+func TestResumeThreadSendsExcludeTurns(t *testing.T) {
+	serverStdinR, clientStdoutW := io.Pipe()
+	clientStdinR, serverStdoutW := io.Pipe()
+
+	serverErr := make(chan error, 1)
+	seen := make(chan map[string]any, 1)
+	go func() {
+		scanner := bufio.NewScanner(serverStdinR)
+		encoder := json.NewEncoder(serverStdoutW)
+		for scanner.Scan() {
+			var req struct {
+				ID     any             `json:"id"`
+				Method string          `json:"method"`
+				Params json.RawMessage `json:"params,omitempty"`
+			}
+			if err := json.Unmarshal(scanner.Bytes(), &req); err != nil {
+				serverErr <- err
+				return
+			}
+			if req.Method != "thread/resume" {
+				continue
+			}
+			var params map[string]any
+			if err := json.Unmarshal(req.Params, &params); err != nil {
+				serverErr <- err
+				return
+			}
+			seen <- params
+			_ = encoder.Encode(map[string]any{
+				"id": req.ID,
+				"result": map[string]any{
+					"thread": map[string]any{"id": "thr_any"},
+				},
+			})
+			serverErr <- nil
+			return
+		}
+		serverErr <- scanner.Err()
+	}()
+
+	scanner := bufio.NewScanner(clientStdinR)
+	scanner.Buffer(make([]byte, 2*1024*1024), 2*1024*1024)
+	client := &AppServerClient{
+		cfg:        Config{CommandTimeout: 5 * time.Second},
+		stdin:      clientStdoutW,
+		scanner:    scanner,
+		timeout:    5 * time.Second,
+		maxMsgSize: 2 * 1024 * 1024,
+	}
+	client.hs = Handshake{}
+	_ = client.hs.OnInitializeSent()
+	_ = client.hs.OnInitializeResponse()
+	_ = client.hs.OnInitializedSent()
+
+	if err := client.ResumeThread(context.Background(), "thr_any"); err != nil {
+		t.Fatalf("ResumeThread: %v", err)
+	}
+
+	select {
+	case params := <-seen:
+		if params["threadId"] != "thr_any" {
+			t.Fatalf("threadId = %v, want thr_any", params["threadId"])
+		}
+		if params["excludeTurns"] != true {
+			t.Fatalf("excludeTurns = %v, want true", params["excludeTurns"])
+		}
+	case <-time.After(time.Second):
+		t.Fatal("server did not observe thread/resume")
+	}
+	if err := <-serverErr; err != nil {
+		t.Fatalf("server error: %v", err)
+	}
+	_ = clientStdinR.Close()
+	_ = clientStdoutW.Close()
+}
+
+type blockingReadConn struct {
+	readStarted chan struct{}
+	closed      chan struct{}
+	closeOnce   sync.Once
+}
+
+func (c *blockingReadConn) Read([]byte) (int, error) {
+	select {
+	case <-c.readStarted:
+	default:
+		close(c.readStarted)
+	}
+	<-c.closed
+	return 0, io.ErrClosedPipe
+}
+
+func (c *blockingReadConn) Write(p []byte) (int, error) { return len(p), nil }
+
+func (c *blockingReadConn) Close() error {
+	c.closeOnce.Do(func() { close(c.closed) })
+	return nil
+}
+
+func TestDoReadResponseTimeoutClosesTransportAndClient(t *testing.T) {
+	conn := &blockingReadConn{readStarted: make(chan struct{}), closed: make(chan struct{})}
+	client := &AppServerClient{
+		cfg:        Config{CommandTimeout: 20 * time.Millisecond},
+		conn:       conn,
+		timeout:    20 * time.Millisecond,
+		maxMsgSize: 1024,
+	}
+
+	err := client.doReadResponse(context.Background(), json.RawMessage("1"), &Message{}, nil)
+	if err == nil {
+		t.Fatal("doReadResponse should time out")
+	}
+
+	select {
+	case <-conn.readStarted:
+	default:
+		t.Fatal("read was not started")
+	}
+	select {
+	case <-conn.closed:
+	case <-time.After(time.Second):
+		t.Fatal("transport was not closed after timeout")
+	}
+
+	if _, err := client.sendRequestRaw(context.Background(), "thread/list", map[string]any{}); err == nil {
+		t.Fatal("client should be terminal after read timeout")
+	}
+}
+
+func TestDoReadResponseTimeoutReapsStdioSubprocess(t *testing.T) {
+	self, err := os.Executable()
+	if err != nil {
+		t.Fatalf("os.Executable: %v", err)
+	}
+
+	cmd := exec.Command(self, "-test.run=TestStdioBlockingHelperProcess")
+	cmd.Env = append(os.Environ(), "ERO_CODEX_BLOCKING_HELPER=1")
+	cmd.Stderr = io.Discard
+
+	stdin, err := cmd.StdinPipe()
+	if err != nil {
+		t.Fatalf("StdinPipe: %v", err)
+	}
+	stdout, err := cmd.StdoutPipe()
+	if err != nil {
+		t.Fatalf("StdoutPipe: %v", err)
+	}
+	if err := cmd.Start(); err != nil {
+		t.Fatalf("Start: %v", err)
+	}
+	t.Cleanup(func() {
+		if cmd.ProcessState == nil {
+			_ = cmd.Process.Kill()
+			_ = cmd.Wait()
+		}
+	})
+
+	scanner := bufio.NewScanner(stdout)
+	client := &AppServerClient{
+		cmd:        cmd,
+		stdin:      stdin,
+		scanner:    scanner,
+		timeout:    20 * time.Millisecond,
+		maxMsgSize: 1024,
+	}
+
+	err = client.doReadResponse(context.Background(), json.RawMessage("1"), &Message{}, nil)
+	if err == nil {
+		t.Fatal("doReadResponse should time out")
+	}
+	if cmd.ProcessState == nil {
+		t.Fatal("timed-out stdio subprocess was not waited/reaped")
+	}
+	if _, err := client.sendRequestRaw(context.Background(), "thread/list", map[string]any{}); err == nil {
+		t.Fatal("client should be terminal after read timeout")
+	}
+}
+
+type blockingWriteConn struct {
+	writeStarted chan struct{}
+	closed       chan struct{}
+	closeOnce    sync.Once
+}
+
+func (c *blockingWriteConn) Read([]byte) (int, error) { return 0, io.ErrClosedPipe }
+
+func (c *blockingWriteConn) Write([]byte) (int, error) {
+	select {
+	case <-c.writeStarted:
+	default:
+		close(c.writeStarted)
+	}
+	<-c.closed
+	return 0, io.ErrClosedPipe
+}
+
+func (c *blockingWriteConn) Close() error {
+	c.closeOnce.Do(func() { close(c.closed) })
+	return nil
+}
+
+func TestWriteCancellationClosesTransportAndClient(t *testing.T) {
+	conn := &blockingWriteConn{writeStarted: make(chan struct{}), closed: make(chan struct{})}
+	client := &AppServerClient{
+		cfg:        Config{CommandTimeout: 20 * time.Millisecond},
+		conn:       conn,
+		timeout:    20 * time.Millisecond,
+		maxMsgSize: 1024,
+	}
+
+	ctx, cancel := context.WithCancel(context.Background())
+	errCh := make(chan error, 1)
+	go func() {
+		errCh <- client.write(ctx, []byte(`{"id":1,"method":"thread/list"}`))
+	}()
+
+	select {
+	case <-conn.writeStarted:
+	case <-time.After(time.Second):
+		t.Fatal("write was not started")
+	}
+	cancel()
+
+	select {
+	case err := <-errCh:
+		if err == nil {
+			t.Fatal("write should be canceled")
+		}
+	case <-time.After(time.Second):
+		t.Fatal("write did not return after cancellation")
+	}
+	select {
+	case <-conn.closed:
+	case <-time.After(time.Second):
+		t.Fatal("transport was not closed after write cancellation")
+	}
+
+	if _, err := client.sendRequestRaw(context.Background(), "thread/list", map[string]any{}); err == nil {
+		t.Fatal("client should be terminal after write cancellation")
+	}
+}
+
+func TestWriteTimeoutReapsStdioSubprocess(t *testing.T) {
+	self, err := os.Executable()
+	if err != nil {
+		t.Fatalf("os.Executable: %v", err)
+	}
+
+	cmd := exec.Command(self, "-test.run=TestStdioBlockingHelperProcess")
+	cmd.Env = append(os.Environ(), "ERO_CODEX_BLOCKING_HELPER=1")
+	cmd.Stderr = io.Discard
+
+	stdin, err := cmd.StdinPipe()
+	if err != nil {
+		t.Fatalf("StdinPipe: %v", err)
+	}
+	stdout, err := cmd.StdoutPipe()
+	if err != nil {
+		t.Fatalf("StdoutPipe: %v", err)
+	}
+	if err := cmd.Start(); err != nil {
+		t.Fatalf("Start: %v", err)
+	}
+	t.Cleanup(func() {
+		if cmd.ProcessState == nil {
+			_ = cmd.Process.Kill()
+			_ = cmd.Wait()
+		}
+	})
+
+	client := &AppServerClient{
+		cmd:        cmd,
+		stdin:      stdin,
+		scanner:    bufio.NewScanner(stdout),
+		timeout:    20 * time.Millisecond,
+		maxMsgSize: 1024,
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Millisecond)
+	defer cancel()
+	if err := client.write(ctx, bytes.Repeat([]byte("x"), 64*1024*1024)); err == nil {
+		t.Fatal("write should time out")
+	}
+	if cmd.ProcessState == nil {
+		t.Fatal("timed-out stdio subprocess was not waited/reaped")
+	}
+	if _, err := client.sendRequestRaw(context.Background(), "thread/list", map[string]any{}); err == nil {
+		t.Fatal("client should be terminal after write timeout")
+	}
+}
+
+func TestStdioBlockingHelperProcess(t *testing.T) {
+	if os.Getenv("ERO_CODEX_BLOCKING_HELPER") != "1" {
+		return
+	}
+	select {}
 }
 
 // TestPublishReviewSuccess verifies a full publish workflow via pipe-based fake server,

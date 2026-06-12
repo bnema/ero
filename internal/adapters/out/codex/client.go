@@ -399,7 +399,10 @@ func (c *AppServerClient) ResumeThread(ctx context.Context, threadID string) err
 	ctx, cancel := context.WithTimeout(ctx, c.timeout)
 	defer cancel()
 
-	params := map[string]any{"threadId": threadID}
+	params := map[string]any{
+		"threadId":     threadID,
+		"excludeTurns": true,
+	}
 	id, err := c.sendRequestRaw(ctx, "thread/resume", params)
 	if err != nil {
 		return fmt.Errorf("codex: resume thread %s: %w", threadID, err)
@@ -520,27 +523,7 @@ func (c *AppServerClient) Close() error {
 		return err
 	}
 
-	// Stdio subprocess: close stdin to signal EOF.
-	if c.stdin != nil {
-		_ = c.stdin.Close()
-		c.stdin = nil
-	}
-
-	if c.cmd != nil && c.cmd.Process != nil {
-		done := make(chan error, 1)
-		go func() { done <- c.cmd.Wait() }()
-
-		select {
-		case err := <-done:
-			return err
-		case <-time.After(5 * time.Second):
-			_ = c.cmd.Process.Kill()
-			<-done
-			return fmt.Errorf("codex: app-server killed after 5s timeout")
-		}
-	}
-
-	return nil
+	return c.closeStdioLocked(5 * time.Second)
 }
 
 // ---------------------------------------------------------------------------
@@ -605,6 +588,29 @@ func (c *AppServerClient) readResponseJSON(ctx context.Context, expectedID json.
 	})
 }
 
+// readTransport is a stable snapshot of the active read side. Background read
+// goroutines must use this instead of re-reading AppServerClient fields because
+// cancellation/timeout aborts can concurrently nil those fields.
+type readTransport struct {
+	conn       io.ReadWriteCloser
+	scanner    *bufio.Scanner
+	maxMsgSize int
+}
+
+// snapshotReadTransportLocked captures the active read side. c.mu must be held.
+func (c *AppServerClient) snapshotReadTransportLocked() (readTransport, error) {
+	if c.closed {
+		return readTransport{}, fmt.Errorf("codex: client is closed")
+	}
+	if c.conn != nil {
+		return readTransport{conn: c.conn, maxMsgSize: c.maxMsgSize}, nil
+	}
+	if c.scanner != nil {
+		return readTransport{scanner: c.scanner, maxMsgSize: c.maxMsgSize}, nil
+	}
+	return readTransport{}, fmt.Errorf("codex: no read target (closed?)")
+}
+
 // readMessage reads one complete JSON-RPC message from the transport.
 // For stdio (JSONL) this is one newline-delimited line.
 // For WebSocket connections this is one complete WebSocket text frame,
@@ -612,11 +618,21 @@ func (c *AppServerClient) readResponseJSON(ctx context.Context, expectedID json.
 // message reassembly correctly (unlike raw Conn.Read which is frame-level).
 // The returned slice is a copy and safe to reuse.
 func (c *AppServerClient) readMessage() ([]byte, error) {
-	if c.conn != nil {
+	c.mu.Lock()
+	transport, err := c.snapshotReadTransportLocked()
+	c.mu.Unlock()
+	if err != nil {
+		return nil, err
+	}
+	return transport.readMessage()
+}
+
+func (t readTransport) readMessage() ([]byte, error) {
+	if t.conn != nil {
 		// WebSocket: use Message.Receive for safe complete-message assembly.
 		// Message.Receive reads until a complete FIN frame is received,
 		// handling continuation frames transparently.
-		if ws, ok := c.conn.(*websocket.Conn); ok {
+		if ws, ok := t.conn.(*websocket.Conn); ok {
 			var msgStr string
 			if err := websocket.Message.Receive(ws, &msgStr); err != nil {
 				return nil, fmt.Errorf("codex: receive websocket message: %w", err)
@@ -627,8 +643,8 @@ func (c *AppServerClient) readMessage() ([]byte, error) {
 			return []byte(msgStr), nil
 		}
 		// Fallback for non-websocket conn (should not happen).
-		buf := make([]byte, c.maxMsgSize)
-		n, err := c.conn.Read(buf)
+		buf := make([]byte, t.maxMsgSize)
+		n, err := t.conn.Read(buf)
 		if err != nil {
 			return nil, fmt.Errorf("codex: read from conn: %w", err)
 		}
@@ -640,15 +656,19 @@ func (c *AppServerClient) readMessage() ([]byte, error) {
 		return line, nil
 	}
 
+	if t.scanner == nil {
+		return nil, fmt.Errorf("codex: no read target (closed?)")
+	}
+
 	// Stdio (JSONL): read one newline-delimited line.
-	if !c.scanner.Scan() {
-		err := c.scanner.Err()
+	if !t.scanner.Scan() {
+		err := t.scanner.Err()
 		if err == nil {
 			err = io.ErrUnexpectedEOF
 		}
 		return nil, err
 	}
-	line := c.scanner.Bytes()
+	line := t.scanner.Bytes()
 	// scanner.Bytes() is valid only until next Scan(); copy it.
 	cp := make([]byte, len(line))
 	copy(cp, line)
@@ -660,18 +680,25 @@ func (c *AppServerClient) readMessage() ([]byte, error) {
 // called after a successful response match.
 //
 // Uses the configured per-request timeout (c.timeout) as the read deadline.
-// The caller's context cancellation takes precedence. The background read
-// goroutine writes its result to a buffered channel so it can complete
-// cleanly even after the caller has returned due to timeout.
+// The caller's context cancellation takes precedence. If the deadline fires,
+// the transport is closed before returning: a timed-out read leaves the stream
+// position indeterminate, so the client is no longer safe to reuse.
 func (c *AppServerClient) doReadResponse(ctx context.Context, expectedID json.RawMessage, msg *Message, okFn func() error) error {
 	readCtx, cancel := context.WithTimeout(ctx, c.timeout)
 	defer cancel()
+
+	c.mu.Lock()
+	transport, err := c.snapshotReadTransportLocked()
+	c.mu.Unlock()
+	if err != nil {
+		return err
+	}
 
 	ch := make(chan readResult, 1)
 
 	go func() {
 		for {
-			line, err := c.readMessage()
+			line, err := transport.readMessage()
 			if err != nil {
 				ch <- readResult{err: fmt.Errorf("codex: read response: %w", err)}
 				return
@@ -721,10 +748,71 @@ func (c *AppServerClient) doReadResponse(ctx context.Context, expectedID json.Ra
 
 	select {
 	case <-readCtx.Done():
+		c.abortTransport()
 		return fmt.Errorf("codex: response read timeout: %w", readCtx.Err())
 	case r := <-ch:
 		return r.err
 	}
+}
+
+// abortTransport closes the underlying transport after a read timeout or
+// cancellation without taking flightMu. Public methods already hold flightMu
+// while waiting for responses, and the client must become terminal because the
+// response stream may be partially consumed.
+func (c *AppServerClient) abortTransport() {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.abortTransportLocked()
+}
+
+// abortTransportLocked closes the underlying transport and marks the client
+// terminal. c.mu must be held.
+func (c *AppServerClient) abortTransportLocked() {
+	if c.closed {
+		return
+	}
+	c.closed = true
+
+	if c.conn != nil {
+		_ = c.conn.Close()
+		c.conn = nil
+	}
+	_ = c.closeStdioLocked(0)
+}
+
+// closeStdioLocked closes and reaps the stdio subprocess. c.mu must be held.
+// A zero grace kills the process immediately, which is used after read timeout
+// or cancellation because the stream state is no longer safe to reuse.
+func (c *AppServerClient) closeStdioLocked(grace time.Duration) error {
+	if c.stdin != nil {
+		_ = c.stdin.Close()
+		c.stdin = nil
+	}
+
+	if c.cmd == nil || c.cmd.Process == nil {
+		return nil
+	}
+
+	cmd := c.cmd
+	c.cmd = nil
+
+	done := make(chan error, 1)
+	go func() { done <- cmd.Wait() }()
+
+	if grace > 0 {
+		select {
+		case err := <-done:
+			return err
+		case <-time.After(grace):
+		}
+	}
+
+	_ = cmd.Process.Kill()
+	err := <-done
+	if grace > 0 {
+		return fmt.Errorf("codex: app-server killed after %s timeout", grace)
+	}
+	return err
 }
 
 // write writes data to the transport (stdio pipe or WebSocket conn) with
@@ -738,26 +826,29 @@ func (c *AppServerClient) write(ctx context.Context, data []byte) error {
 // writeLocked writes data to the transport assuming the mutex is already held.
 // For WebSocket connections it uses websocket.Message.Send which sends a
 // complete text frame (the WebSocket message-level API). For stdio it writes
-// directly to the stdin pipe (JSONL).
+// directly to the stdin pipe (JSONL). If the write is canceled, the transport
+// is closed before returning because stream state is no longer safe to reuse.
 func (c *AppServerClient) writeLocked(ctx context.Context, data []byte) error {
 	ch := make(chan error, 1)
 
 	switch {
 	case c.conn != nil:
-		if ws, ok := c.conn.(*websocket.Conn); ok {
+		conn := c.conn
+		if ws, ok := conn.(*websocket.Conn); ok {
 			go func() {
 				// Message.Send with string sends a complete text frame.
 				ch <- websocket.Message.Send(ws, string(data))
 			}()
 		} else {
 			go func() {
-				_, err := c.conn.Write(data)
+				_, err := conn.Write(data)
 				ch <- err
 			}()
 		}
 	case c.stdin != nil:
+		stdin := c.stdin
 		go func() {
-			_, err := c.stdin.Write(data)
+			_, err := stdin.Write(data)
 			ch <- err
 		}()
 	default:
@@ -766,6 +857,7 @@ func (c *AppServerClient) writeLocked(ctx context.Context, data []byte) error {
 
 	select {
 	case <-ctx.Done():
+		c.abortTransportLocked()
 		return fmt.Errorf("codex: write timeout: %w", ctx.Err())
 	case err := <-ch:
 		return err

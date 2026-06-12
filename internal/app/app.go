@@ -132,7 +132,7 @@ func newAppWithClipboard(cfg *viper.Viper, loader reviewLoader, runner tuiRunner
 		return nil, fmt.Errorf("build root command: %w", err)
 	}
 	root.AddCommand(versionCommand())
-	root.AddCommand(cli.NewProviderRuntimeCommand())
+	root.AddCommand(cli.NewProviderRuntimeCommand(NewBuiltinProviderRequestHandler()))
 	root.AddCommand(cli.NewPluginCommand(pluginadapter.NewManager(), nil))
 
 	return &App{
