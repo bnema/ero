@@ -3,6 +3,7 @@ package cli
 import (
 	"bytes"
 	"encoding/json"
+	"errors"
 	"regexp"
 	"strings"
 	"testing"
@@ -275,6 +276,95 @@ func TestPluginUpdateFiltered(t *testing.T) {
 
 func stripANSI(s string) string {
 	return regexp.MustCompile(`\x1b\[[0-9;]*m`).ReplaceAllString(s, "")
+}
+
+// ---------- regression: builtin providers are not managed by plugin lifecycle ----------
+
+func TestPluginListOnlyShowsInstalledPlugins(t *testing.T) {
+	t.Parallel()
+
+	plugins := []ports.InstalledPlugin{
+		{Name: "github", Version: "0.1.0", Source: "git:github.com/ero-plugins/github@v0.1.0", Contributions: []string{"review_provider:github"}},
+	}
+	manager := mocks.NewMockPluginLifecycle(t)
+	manager.EXPECT().List(mock.Anything).Return(plugins, nil)
+
+	cmd := NewPluginCommand(manager, nil)
+
+	var out bytes.Buffer
+	cmd.SetOut(&out)
+	cmd.SetArgs([]string{"list"})
+
+	err := cmd.Execute()
+	require.NoError(t, err)
+
+	// The installed plugin is present in the output.
+	assert.Contains(t, out.String(), "github")
+	// Builtin provider identifiers MUST NOT appear: PluginLifecycle.List only
+	// returns plugins tracked in the config file, not builtin descriptors.
+	assert.NotContains(t, out.String(), "builtin:", "builtin provider keys must not appear in plugin list")
+	assert.NotContains(t, out.String(), "Codex", "builtin provider names must not appear in plugin list")
+}
+
+func TestPluginRemoveWithBuiltinKeyFails(t *testing.T) {
+	t.Parallel()
+
+	manager := mocks.NewMockPluginLifecycle(t)
+	// A builtin provider key is not known to PluginLifecycle, so Remove returns
+	// a "not found" error — the same as any other unknown name or source.
+	manager.EXPECT().Remove(mock.Anything, "builtin:codex").
+		Return(ports.PluginRemoveResult{}, errors.New("plugin \"builtin:codex\" not found in config"))
+
+	cmd := NewPluginCommand(manager, nil)
+
+	var out bytes.Buffer
+	cmd.SetOut(&out)
+	cmd.SetArgs([]string{"remove", "builtin:codex"})
+
+	err := cmd.Execute()
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "not found")
+}
+
+func TestPluginUpdateWithBuiltinSourceFails(t *testing.T) {
+	t.Parallel()
+
+	manager := mocks.NewMockPluginLifecycle(t)
+	// A builtin source is not tracked in the plugin config, so Update returns
+	// no results with no error — no installed plugin matched the filter.
+	manager.EXPECT().Update(mock.Anything, "builtin:codex").Return(nil, nil)
+
+	cmd := NewPluginCommand(manager, nil)
+
+	var out bytes.Buffer
+	cmd.SetOut(&out)
+	cmd.SetArgs([]string{"update", "builtin:codex"})
+
+	err := cmd.Execute()
+	require.NoError(t, err)
+	assert.Contains(t, stripANSI(out.String()), "No plugins to update")
+}
+
+func TestPluginInstallWithBuiltinIdentifier(t *testing.T) {
+	t.Parallel()
+
+	manager := mocks.NewMockPluginLifecycle(t)
+	// The install command does not treat builtin provider identifiers specially.
+	// It delegates directly to PluginLifecycle.Install with the user-supplied
+	// argument. A builtin provider key is not a valid plugin source, so Install
+	// returns an error — the same as any other unresolvable source.
+	manager.EXPECT().Install(mock.Anything, "builtin:codex").
+		Return(ports.PluginInstallResult{}, errors.New("unsupported plugin source: builtin:codex"))
+
+	cmd := NewPluginCommand(manager, nil)
+
+	var out bytes.Buffer
+	cmd.SetOut(&out)
+	cmd.SetArgs([]string{"install", "builtin:codex"})
+
+	err := cmd.Execute()
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "unsupported plugin source")
 }
 
 func TestPluginCommandWiresContext(t *testing.T) {

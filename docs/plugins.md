@@ -23,6 +23,27 @@ ero plugin remove <name|source>
 
 All plugin subcommands support `--json` for machine-readable output. Sources may be Git URLs, `git:` shorthand such as `git:github.com/owner/repo@v1.2.3`, or a local Git repository path. Local repositories are registered by reference and are not deleted by Ero when removed.
 
+### Builtin providers
+
+Ero ships with builtin review providers (such as Codex) that are compiled into the
+binary and available in the provider picker without any plugin installation step.
+
+Builtin providers differ from installed plugins in several important ways:
+
+- **Always available**: They appear in provider discovery and the provider picker
+  regardless of whether any plugins are installed.
+- **Not managed by plugin lifecycle commands**: The `ero plugin list`, `ero plugin
+  install`, `ero plugin update`, and `ero plugin remove` commands only operate on
+  plugins tracked in the Ero config file. Builtin providers are never written to
+  config and never appear in `ero plugin list` output.
+- **Not removable**: Because they are compiled into the binary, builtin providers
+  cannot be removed with `ero plugin remove`.
+
+Ero appends builtin provider descriptors to the installed-plugin catalog at the
+provider discovery layer (`MergedProviderCatalog`). This ensures they appear in the
+UI for selection while keeping the plugin lifecycle surface exclusively for
+user-installed plugins.
+
 ## Manifest
 
 Each plugin repository has an `ero-plugin.toml` at its root:
