@@ -106,12 +106,8 @@ func newAppWithClipboard(cfg *viper.Viper, loader reviewLoader, runner tuiRunner
 		providerLoader := pluginadapter.NewReviewProviderLoader(pluginManager)
 		providerStore := providercache.NewXDGStore()
 
-		// Wrap installed-plugin catalog/factory with builtin provider support.
-		mergedCatalog := NewMergedProviderCatalog(providerLoader)
-		builtinFactory := NewBuiltinAwareFactory(providerLoader)
-
-		activeProviderService := NewActiveProviderService(mergedCatalog, builtinFactory, providerStore, providerStore, providerPollingConfigFromConfig(cfg))
-		activeProvider := &tuiActiveProviderController{catalog: mergedCatalog, service: activeProviderService}
+		activeProviderService := NewActiveProviderService(providerLoader, providerLoader, providerStore, providerStore, providerPollingConfigFromConfig(cfg))
+		activeProvider := &tuiActiveProviderController{catalog: providerLoader, service: activeProviderService}
 		var metadata ports.GitMetadataReader
 		if reader, ok := loader.(ports.GitMetadataReader); ok {
 			metadata = reader
@@ -119,8 +115,7 @@ func newAppWithClipboard(cfg *viper.Viper, loader reviewLoader, runner tuiRunner
 			metadata = reader
 		}
 		reviewContext := buildReviewContext(initialRequest, files, metadata, version)
-		var compatibilityProviders []ports.ReviewProviderClient
-		err = runner.Run(tui.NewModelWithActiveProviderContext(ctx, files, terminal.NewCapabilities(), loader, initialRequest, clipboardWriter, reviewContext, activeProvider, compatibilityProviders))
+		err = runner.Run(tui.NewModelWithActiveProviderContext(ctx, files, terminal.NewCapabilities(), loader, initialRequest, clipboardWriter, reviewContext, activeProvider, nil))
 		if err != nil {
 			log.Error().Err(err).Msg("tui exited with error")
 			return err
@@ -132,7 +127,6 @@ func newAppWithClipboard(cfg *viper.Viper, loader reviewLoader, runner tuiRunner
 		return nil, fmt.Errorf("build root command: %w", err)
 	}
 	root.AddCommand(versionCommand())
-	root.AddCommand(cli.NewProviderRuntimeCommand(NewBuiltinProviderRequestHandler()))
 	root.AddCommand(cli.NewPluginCommand(pluginadapter.NewManager(), nil))
 
 	return &App{

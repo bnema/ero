@@ -28,7 +28,17 @@ func TestPluginCommandRegisteredUnderParent(t *testing.T) {
 	listCmd, _, err := cmd.Find([]string{"list"})
 	require.NoError(t, err)
 	assert.Equal(t, "list", listCmd.Use)
-	assert.Equal(t, "List installed plugins", listCmd.Short)
+	assert.Equal(t, "List available plugins", listCmd.Short)
+}
+
+func TestPluginCommandLongHelpMentionsBundledCodexPackagingConstraints(t *testing.T) {
+	t.Parallel()
+
+	manager := mocks.NewMockPluginLifecycle(t)
+	cmd := NewPluginCommand(manager, nil)
+
+	assert.Contains(t, cmd.Long, "packaged releases and source checkouts")
+	assert.Contains(t, cmd.Long, "go install ./cmd/ero installs only the ero binary")
 }
 
 func TestPluginListEmpty(t *testing.T) {
@@ -44,7 +54,7 @@ func TestPluginListEmpty(t *testing.T) {
 
 	err := cmd.Execute()
 	require.NoError(t, err)
-	assert.Contains(t, out.String(), "No plugins installed")
+	assert.Contains(t, out.String(), "No plugins available")
 }
 
 func TestPluginListHumanOutput(t *testing.T) {
@@ -278,12 +288,13 @@ func stripANSI(s string) string {
 	return regexp.MustCompile(`\x1b\[[0-9;]*m`).ReplaceAllString(s, "")
 }
 
-// ---------- regression: builtin providers are not managed by plugin lifecycle ----------
+// ---------- regression: bundled Codex lifecycle UX ----------
 
-func TestPluginListOnlyShowsInstalledPlugins(t *testing.T) {
+func TestPluginListShowsBundledCodex(t *testing.T) {
 	t.Parallel()
 
 	plugins := []ports.InstalledPlugin{
+		{Name: "Codex", Version: "bundled", Source: "bundled:ero-plugin-codex", Bundled: true, Contributions: []string{"review_provider:codex"}},
 		{Name: "github", Version: "0.1.0", Source: "git:github.com/ero-plugins/github@v0.1.0", Contributions: []string{"review_provider:github"}},
 	}
 	manager := mocks.NewMockPluginLifecycle(t)
@@ -298,73 +309,73 @@ func TestPluginListOnlyShowsInstalledPlugins(t *testing.T) {
 	err := cmd.Execute()
 	require.NoError(t, err)
 
-	// The installed plugin is present in the output.
-	assert.Contains(t, out.String(), "github")
-	// Builtin provider identifiers MUST NOT appear: PluginLifecycle.List only
-	// returns plugins tracked in the config file, not builtin descriptors.
-	assert.NotContains(t, out.String(), "builtin:", "builtin provider keys must not appear in plugin list")
-	assert.NotContains(t, out.String(), "Codex", "builtin provider names must not appear in plugin list")
+	output := stripANSI(out.String())
+	assert.Contains(t, output, "Codex vbundled (bundled/default)")
+	assert.Contains(t, output, "review_provider:codex")
+	assert.Contains(t, output, "bundled:ero-plugin-codex")
+	assert.Contains(t, output, "github")
 }
 
-func TestPluginRemoveWithBuiltinKeyFails(t *testing.T) {
+func TestPluginRemoveWithBundledCodexFailsClearly(t *testing.T) {
 	t.Parallel()
 
 	manager := mocks.NewMockPluginLifecycle(t)
-	// A builtin provider key is not known to PluginLifecycle, so Remove returns
-	// a "not found" error — the same as any other unknown name or source.
-	manager.EXPECT().Remove(mock.Anything, "builtin:codex").
-		Return(ports.PluginRemoveResult{}, errors.New("plugin \"builtin:codex\" not found in config"))
+	manager.EXPECT().Remove(mock.Anything, "bundled:ero-plugin-codex").
+		Return(ports.PluginRemoveResult{}, errors.New("bundled/default plugin \"bundled:ero-plugin-codex\" is included with ero and cannot be removed"))
 
 	cmd := NewPluginCommand(manager, nil)
 
 	var out bytes.Buffer
 	cmd.SetOut(&out)
-	cmd.SetArgs([]string{"remove", "builtin:codex"})
+	cmd.SetArgs([]string{"remove", "bundled:ero-plugin-codex"})
 
 	err := cmd.Execute()
 	require.Error(t, err)
-	assert.Contains(t, err.Error(), "not found")
+	assert.Contains(t, err.Error(), "bundled/default")
+	assert.Contains(t, err.Error(), "cannot be removed")
 }
 
-func TestPluginUpdateWithBuiltinSourceFails(t *testing.T) {
+func TestPluginUpdateWithBundledCodexReportsSkipped(t *testing.T) {
 	t.Parallel()
 
 	manager := mocks.NewMockPluginLifecycle(t)
-	// A builtin source is not tracked in the plugin config, so Update returns
-	// no results with no error — no installed plugin matched the filter.
-	manager.EXPECT().Update(mock.Anything, "builtin:codex").Return(nil, nil)
+	manager.EXPECT().Update(mock.Anything, "bundled:ero-plugin-codex").Return([]ports.PluginUpdateResult{{
+		Source:  "bundled:ero-plugin-codex",
+		Name:    "ero-plugin-codex",
+		Message: "bundled/default plugin is included with ero and cannot be updated by plugin update",
+	}}, nil)
 
 	cmd := NewPluginCommand(manager, nil)
 
 	var out bytes.Buffer
 	cmd.SetOut(&out)
-	cmd.SetArgs([]string{"update", "builtin:codex"})
+	cmd.SetArgs([]string{"update", "bundled:ero-plugin-codex"})
 
 	err := cmd.Execute()
 	require.NoError(t, err)
-	assert.Contains(t, stripANSI(out.String()), "No plugins to update")
+	output := stripANSI(out.String())
+	assert.Contains(t, output, "ero-plugin-codex")
+	assert.Contains(t, output, "bundled/default")
+	assert.Contains(t, output, "cannot be updated")
 }
 
-func TestPluginInstallWithBuiltinIdentifier(t *testing.T) {
+func TestPluginInstallWithBundledCodexIdentifier(t *testing.T) {
 	t.Parallel()
 
 	manager := mocks.NewMockPluginLifecycle(t)
-	// The install command does not treat builtin provider identifiers specially.
-	// It delegates directly to PluginLifecycle.Install with the user-supplied
-	// argument. A builtin provider key is not a valid plugin source, so Install
-	// returns an error — the same as any other unresolvable source.
-	manager.EXPECT().Install(mock.Anything, "builtin:codex").
-		Return(ports.PluginInstallResult{}, errors.New("unsupported plugin source: builtin:codex"))
+	manager.EXPECT().Install(mock.Anything, "bundled:ero-plugin-codex").
+		Return(ports.PluginInstallResult{}, errors.New("bundled/default plugin \"bundled:ero-plugin-codex\" is included with ero and cannot be installed"))
 
 	cmd := NewPluginCommand(manager, nil)
 
 	var out bytes.Buffer
 	cmd.SetOut(&out)
-	cmd.SetArgs([]string{"install", "builtin:codex"})
+	cmd.SetArgs([]string{"install", "bundled:ero-plugin-codex"})
 
 	err := cmd.Execute()
 	require.Error(t, err)
-	assert.Contains(t, err.Error(), "unsupported plugin source")
+	assert.Contains(t, err.Error(), "bundled/default")
+	assert.Contains(t, err.Error(), "cannot be installed")
 }
 
 func TestPluginCommandWiresContext(t *testing.T) {

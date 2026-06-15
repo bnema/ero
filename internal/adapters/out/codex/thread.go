@@ -53,8 +53,8 @@ type ThreadPage struct {
 	NextPage PageToken
 }
 
-// StoredThreadLister provides paginated access to stored (not loaded) threads.
-// Phase 3 will provide the real implementation backed by the Codex API.
+// StoredThreadLister provides paginated access to stored (not loaded) Codex
+// threads for session selection and resume decisions.
 type StoredThreadLister interface {
 	// ListStoredThreads returns the next page of stored thread candidates.
 	// The caller provides a context for cancellation/timeout and a page token

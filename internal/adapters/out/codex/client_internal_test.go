@@ -147,6 +147,62 @@ func pipeFakeServer(t *testing.T, stdin io.Reader, stdout io.Writer, errCh chan<
 	errCh <- scanner.Err()
 }
 
+func pipeLoadedReadErrorFakeServer(t *testing.T, stdin io.Reader, stdout io.Writer, errCh chan<- error, readCode int, readMessage string) {
+	t.Helper()
+	scanner := bufio.NewScanner(stdin)
+	scanner.Buffer(make([]byte, 1024*1024), 1024*1024)
+	encoder := json.NewEncoder(stdout)
+
+	for scanner.Scan() {
+		line := strings.TrimSpace(scanner.Text())
+		if line == "" {
+			continue
+		}
+
+		var req struct {
+			ID     any    `json:"id"`
+			Method string `json:"method"`
+		}
+		if err := json.Unmarshal([]byte(line), &req); err != nil {
+			_ = encoder.Encode(map[string]any{
+				"id":    nil,
+				"error": map[string]any{"code": -32700, "message": "Parse error"},
+			})
+			continue
+		}
+
+		switch req.Method {
+		case "initialize":
+			_ = encoder.Encode(map[string]any{
+				"id": req.ID,
+				"result": map[string]any{
+					"protocolVersion": "2.0",
+					"capabilities":    map[string]any{},
+					"serverInfo":      map[string]string{"name": "codex-test", "version": "0.0.0"},
+				},
+			})
+		case "initialized":
+		case "thread/loaded/list":
+			_ = encoder.Encode(map[string]any{
+				"id":     req.ID,
+				"result": map[string]any{"data": []string{"thr_loaded_1"}},
+			})
+		case "thread/read":
+			_ = encoder.Encode(map[string]any{
+				"id":    req.ID,
+				"error": map[string]any{"code": readCode, "message": readMessage},
+			})
+		default:
+			_ = encoder.Encode(map[string]any{
+				"id":    req.ID,
+				"error": map[string]any{"code": -32601, "message": fmt.Sprintf("Method not found: %s", req.Method)},
+			})
+		}
+	}
+
+	errCh <- scanner.Err()
+}
+
 // TestInitializeAppendsNewline verifies that the initialized notification
 // includes a trailing newline (required for JSONL transport).
 // It also verifies that Initialize + ReadThread work correctly with the
@@ -230,6 +286,101 @@ func TestInitializeAppendsNewline(t *testing.T) {
 	}
 
 	// Clean up.
+	_ = clientStdinR.Close()
+	_ = clientStdoutW.Close()
+
+	select {
+	case err := <-serverErr:
+		if err != nil {
+			t.Fatalf("fake server error: %v", err)
+		}
+	default:
+	}
+}
+
+func TestListLoadedThreadsSkipsUnsupportedReadThread(t *testing.T) {
+	serverStdinR, clientStdoutW := io.Pipe()
+	clientStdinR, serverStdoutW := io.Pipe()
+
+	serverErr := make(chan error, 1)
+	go pipeLoadedReadErrorFakeServer(t, serverStdinR, serverStdoutW, serverErr, ErrCodeMethodNotFound, "Method not found: thread/read")
+	time.Sleep(10 * time.Millisecond)
+
+	scanner := bufio.NewScanner(clientStdinR)
+	scanner.Buffer(make([]byte, 2*1024*1024), 2*1024*1024)
+
+	client := &AppServerClient{
+		cfg:        Config{CommandTimeout: 5 * time.Second},
+		stdin:      clientStdoutW,
+		scanner:    scanner,
+		timeout:    5 * time.Second,
+		maxMsgSize: 2 * 1024 * 1024,
+	}
+
+	if err := client.Initialize(context.Background()); err != nil {
+		t.Fatalf("Initialize: %v", err)
+	}
+
+	loaded, err := client.ListLoadedThreads(context.Background())
+	if err != nil {
+		t.Fatalf("ListLoadedThreads: %v", err)
+	}
+	if len(loaded) != 1 {
+		t.Fatalf("expected 1 loaded thread, got %d", len(loaded))
+	}
+	if loaded[0].ID != "thr_loaded_1" || !loaded[0].IsLoaded {
+		t.Fatalf("unexpected loaded candidate: %+v", loaded[0])
+	}
+	if loaded[0].CWD != "" || loaded[0].SessionKey != "" {
+		t.Fatalf("unsupported read should return bare loaded candidate, got %+v", loaded[0])
+	}
+
+	_ = clientStdinR.Close()
+	_ = clientStdoutW.Close()
+
+	select {
+	case err := <-serverErr:
+		if err != nil {
+			t.Fatalf("fake server error: %v", err)
+		}
+	default:
+	}
+}
+
+func TestListLoadedThreadsReturnsNonUnsupportedReadThreadError(t *testing.T) {
+	serverStdinR, clientStdoutW := io.Pipe()
+	clientStdinR, serverStdoutW := io.Pipe()
+
+	serverErr := make(chan error, 1)
+	go pipeLoadedReadErrorFakeServer(t, serverStdinR, serverStdoutW, serverErr, ErrCodeOverloaded, ErrMsgOverloaded)
+	time.Sleep(10 * time.Millisecond)
+
+	scanner := bufio.NewScanner(clientStdinR)
+	scanner.Buffer(make([]byte, 2*1024*1024), 2*1024*1024)
+
+	client := &AppServerClient{
+		cfg:        Config{CommandTimeout: 5 * time.Second},
+		stdin:      clientStdoutW,
+		scanner:    scanner,
+		timeout:    5 * time.Second,
+		maxMsgSize: 2 * 1024 * 1024,
+	}
+
+	if err := client.Initialize(context.Background()); err != nil {
+		t.Fatalf("Initialize: %v", err)
+	}
+
+	loaded, err := client.ListLoadedThreads(context.Background())
+	if err == nil {
+		t.Fatalf("ListLoadedThreads should fail, got loaded=%+v", loaded)
+	}
+	if !strings.Contains(err.Error(), `codex: read loaded thread "thr_loaded_1"`) {
+		t.Fatalf("expected wrapped readThread context, got %v", err)
+	}
+	if rpcErr := RPCErrorFromError(err); rpcErr == nil || rpcErr.Code != ErrCodeOverloaded {
+		t.Fatalf("expected overloaded RPC error, got %#v from %v", rpcErr, err)
+	}
+
 	_ = clientStdinR.Close()
 	_ = clientStdoutW.Close()
 

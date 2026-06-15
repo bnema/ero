@@ -17,17 +17,21 @@ var (
 	warnStyle  = lipgloss.NewStyle().Foreground(lipgloss.Color("214")).Bold(true)
 )
 
-// PluginList renders installed plugins for human CLI output.
+// PluginList renders available plugins for human CLI output.
 func PluginList(plugins []ports.InstalledPlugin, width int) string {
 	if len(plugins) == 0 {
-		return mutedStyle.Render("No plugins installed.")
+		return mutedStyle.Render("No plugins available.")
 	}
 
 	var b strings.Builder
-	b.WriteString(titleStyle.Render("Installed plugins"))
+	b.WriteString(titleStyle.Render("Available plugins"))
 	for _, plugin := range plugins {
 		b.WriteString("\n\n")
-		b.WriteString(badgeStyle.Render(truncateRunes(plugin.Name+" v"+plugin.Version, max(width, 20))))
+		label := plugin.Name + " v" + plugin.Version
+		if plugin.Bundled {
+			label += " (bundled/default)"
+		}
+		b.WriteString(badgeStyle.Render(truncateRunes(label, max(width, 20))))
 		if len(plugin.Contributions) > 0 {
 			b.WriteString("\n")
 			b.WriteString("  ")

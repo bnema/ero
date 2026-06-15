@@ -15,25 +15,25 @@ type PublishResult struct {
 	TurnID string
 }
 
-// publishErrorReason classifies the failure for better error messages.
-type publishErrorReason string
+// PublishErrorReason classifies the failure for better error messages.
+type PublishErrorReason string
 
 const (
-	publishErrStartup     publishErrorReason = "startup"
-	publishErrInitialize  publishErrorReason = "initialize"
-	publishErrListing     publishErrorReason = "listing"
-	publishErrOverride    publishErrorReason = "override"
-	publishErrIO          publishErrorReason = "io"
-	publishErrAmbiguous   publishErrorReason = "ambiguous"
-	publishErrResume      publishErrorReason = "resume"
-	publishErrCreate      publishErrorReason = "create"
-	publishErrPublish     publishErrorReason = "publish"
-	publishErrUnsupported publishErrorReason = "unsupported"
+	PublishErrorStartup     PublishErrorReason = "startup"
+	PublishErrorInitialize  PublishErrorReason = "initialize"
+	PublishErrorListing     PublishErrorReason = "listing"
+	PublishErrorOverride    PublishErrorReason = "override"
+	PublishErrorIO          PublishErrorReason = "io"
+	PublishErrorAmbiguous   PublishErrorReason = "ambiguous"
+	PublishErrorResume      PublishErrorReason = "resume"
+	PublishErrorCreate      PublishErrorReason = "create"
+	PublishErrorPublish     PublishErrorReason = "publish"
+	PublishErrorUnsupported PublishErrorReason = "unsupported"
 )
 
 // PublishReviewError is a structured error returned by PublishReview.
 type PublishReviewError struct {
-	Reason  publishErrorReason
+	Reason  PublishErrorReason
 	Message string
 	Cause   error
 }
@@ -62,17 +62,19 @@ func PublishReview(ctx context.Context, cfg Config, cwd, formattedMessage string
 	client, err := NewAppServerClient(ctx, cfg)
 	if err != nil {
 		return nil, &PublishReviewError{
-			Reason:  publishErrStartup,
+			Reason:  PublishErrorStartup,
 			Message: fmt.Sprintf("codex: start app-server: %s", err),
 			Cause:   err,
 		}
 	}
-	defer client.Close()
+	defer func() {
+		_ = client.Close()
+	}()
 
 	// 2. Initialize handshake.
 	if err := client.Initialize(ctx); err != nil {
 		return nil, &PublishReviewError{
-			Reason:  publishErrInitialize,
+			Reason:  PublishErrorInitialize,
 			Message: fmt.Sprintf("codex: initialize app-server: %s", err),
 			Cause:   err,
 		}
@@ -82,7 +84,7 @@ func PublishReview(ctx context.Context, cfg Config, cwd, formattedMessage string
 	loaded, err := client.ListLoadedThreads(ctx)
 	if err != nil {
 		return nil, &PublishReviewError{
-			Reason:  publishErrListing,
+			Reason:  PublishErrorListing,
 			Message: fmt.Sprintf("codex: list loaded threads: %s", err),
 			Cause:   err,
 		}
@@ -104,18 +106,18 @@ func PublishReview(ctx context.Context, cfg Config, cwd, formattedMessage string
 	case ThreadDecisionInvalidOverride:
 		if cfg.SessionKey != "" && cfg.ThreadID == "" {
 			return nil, &PublishReviewError{
-				Reason:  publishErrOverride,
+				Reason:  PublishErrorOverride,
 				Message: fmt.Sprintf("codex: session key override %q not found: %s", cfg.SessionKey, selection.Reason),
 			}
 		}
 		return nil, &PublishReviewError{
-			Reason:  publishErrOverride,
+			Reason:  PublishErrorOverride,
 			Message: fmt.Sprintf("codex: thread override %q not found: %s", cfg.ThreadID, selection.Reason),
 		}
 
 	case ThreadDecisionIOError:
 		return nil, &PublishReviewError{
-			Reason:  publishErrIO,
+			Reason:  PublishErrorIO,
 			Message: fmt.Sprintf("codex: cannot list stored threads: %s; set ERO_CODEX_THREAD_ID to target a specific thread or retry", selection.Reason),
 		}
 
@@ -125,7 +127,7 @@ func PublishReview(ctx context.Context, cfg Config, cwd, formattedMessage string
 			ids = append(ids, m.ID)
 		}
 		return nil, &PublishReviewError{
-			Reason: publishErrAmbiguous,
+			Reason: PublishErrorAmbiguous,
 			Message: fmt.Sprintf(
 				"codex: multiple threads match this workspace: %s; "+
 					"set ERO_CODEX_THREAD_ID to one of these IDs to disambiguate",
@@ -140,14 +142,14 @@ func PublishReview(ctx context.Context, cfg Config, cwd, formattedMessage string
 	case ThreadDecisionResume:
 		if selection.Candidate == nil {
 			return nil, &PublishReviewError{
-				Reason:  publishErrResume,
+				Reason:  PublishErrorResume,
 				Message: "codex: resume decision with nil candidate",
 			}
 		}
 		threadID = selection.Candidate.ID
 		if err := client.ResumeThread(ctx, threadID); err != nil {
 			return nil, &PublishReviewError{
-				Reason:  publishErrResume,
+				Reason:  PublishErrorResume,
 				Message: fmt.Sprintf("codex: resume thread %s: %s", threadID, err),
 				Cause:   err,
 			}
@@ -156,7 +158,7 @@ func PublishReview(ctx context.Context, cfg Config, cwd, formattedMessage string
 		id, err := client.StartThread(ctx, cwd)
 		if err != nil {
 			return nil, &PublishReviewError{
-				Reason:  publishErrCreate,
+				Reason:  PublishErrorCreate,
 				Message: fmt.Sprintf("codex: start thread: %s", err),
 				Cause:   err,
 			}
@@ -164,7 +166,7 @@ func PublishReview(ctx context.Context, cfg Config, cwd, formattedMessage string
 		threadID = id
 	default:
 		return nil, &PublishReviewError{
-			Reason:  publishErrUnsupported,
+			Reason:  PublishErrorUnsupported,
 			Message: fmt.Sprintf("codex: unexpected thread selection decision %q", selection.Decision),
 		}
 	}
@@ -174,7 +176,7 @@ func PublishReview(ctx context.Context, cfg Config, cwd, formattedMessage string
 	if err != nil {
 		return &PublishResult{ThreadID: threadID},
 			&PublishReviewError{
-				Reason:  publishErrPublish,
+				Reason:  PublishErrorPublish,
 				Message: fmt.Sprintf("codex: publish review to thread %s failed: %s", threadID, err),
 				Cause:   err,
 			}

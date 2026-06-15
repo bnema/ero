@@ -12,7 +12,7 @@ import (
 // ---------------------------------------------------------------------------
 // Environment variable names
 //
-// These environment variables control the builtin Codex provider's connection
+// These environment variables control the bundled Codex provider's connection
 // to the codex app-server. They are set externally (by the user, the CI
 // runner, or a wrapping script) and read by the provider on start-up.
 // ---------------------------------------------------------------------------
@@ -69,7 +69,7 @@ const (
 	TransportModeProxy TransportMode = "proxy"
 )
 
-// Config controls how the builtin Codex provider connects to the codex
+// Config controls how the bundled Codex provider connects to the codex
 // app-server. A zero-value Config is resolved from the environment at the
 // point of use via ConfigFromEnv.
 type Config struct {
@@ -146,12 +146,12 @@ func ConfigFromEnv() Config {
 	}
 
 	return Config{
-		ExecPath:       os.Getenv(EnvCodexExecPath),
-		ThreadID:       os.Getenv(EnvCodexThreadID),
-		SessionKey:     os.Getenv(EnvCodexSessionKey),
-		CodexHome:      os.Getenv(EnvCodexHome),
+		ExecPath:       strings.TrimSpace(os.Getenv(EnvCodexExecPath)),
+		ThreadID:       strings.TrimSpace(os.Getenv(EnvCodexThreadID)),
+		SessionKey:     strings.TrimSpace(os.Getenv(EnvCodexSessionKey)),
+		CodexHome:      strings.TrimSpace(os.Getenv(EnvCodexHome)),
 		Transport:      transport,
-		SocketPath:     os.Getenv(EnvCodexSocketPath),
+		SocketPath:     strings.TrimSpace(os.Getenv(EnvCodexSocketPath)),
 		CommandTimeout: timeout,
 	}
 }
@@ -181,10 +181,7 @@ func (c Config) CodexAvailable() bool {
 // ShouldProbeSocket returns true when the transport config requires probing
 // for a live session before deciding how to connect.
 func (c Config) ShouldProbeSocket() bool {
-	if c.Transport == TransportModeAuto {
-		return true
-	}
-	return false
+	return c.Transport == TransportModeAuto
 }
 
 // EffectiveSocketPath returns the resolved socket path with ambient fallback.

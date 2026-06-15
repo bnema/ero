@@ -24,7 +24,9 @@ func startTestWSEchoServer(t *testing.T, socketPath string) net.Listener {
 	if err := os.MkdirAll(filepath.Dir(socketPath), 0755); err != nil {
 		t.Fatalf("mkdir socket dir: %v", err)
 	}
-	os.Remove(socketPath)
+	if err := os.Remove(socketPath); err != nil && !os.IsNotExist(err) {
+		t.Fatalf("remove stale socket: %v", err)
+	}
 
 	ln, err := net.Listen("unix", socketPath)
 	if err != nil {
@@ -70,7 +72,11 @@ func TestWebSocketMessageRoundTrip(t *testing.T) {
 	sockPath := filepath.Join(dir, "test-ws.sock")
 
 	ln := startTestWSEchoServer(t, sockPath)
-	defer ln.Close()
+	t.Cleanup(func() {
+		if err := ln.Close(); err != nil {
+			t.Errorf("close listener: %v", err)
+		}
+	})
 	// Give the server a moment to start listening.
 	time.Sleep(20 * time.Millisecond)
 
@@ -79,7 +85,11 @@ func TestWebSocketMessageRoundTrip(t *testing.T) {
 	if err != nil {
 		t.Fatalf("dial unix: %v", err)
 	}
-	defer rawConn.Close()
+	t.Cleanup(func() {
+		if err := rawConn.Close(); err != nil {
+			t.Errorf("close raw conn: %v", err)
+		}
+	})
 
 	config, err := websocket.NewConfig("ws://localhost/", "http://localhost/")
 	if err != nil {
@@ -138,14 +148,22 @@ func TestWebSocketLargeMessage(t *testing.T) {
 	sockPath := filepath.Join(dir, "test-large.sock")
 
 	ln := startTestWSEchoServer(t, sockPath)
-	defer ln.Close()
+	t.Cleanup(func() {
+		if err := ln.Close(); err != nil {
+			t.Errorf("close listener: %v", err)
+		}
+	})
 	time.Sleep(20 * time.Millisecond)
 
 	rawConn, err := net.DialTimeout("unix", sockPath, 5*time.Second)
 	if err != nil {
 		t.Fatalf("dial unix: %v", err)
 	}
-	defer rawConn.Close()
+	t.Cleanup(func() {
+		if err := rawConn.Close(); err != nil {
+			t.Errorf("close raw conn: %v", err)
+		}
+	})
 
 	config, err := websocket.NewConfig("ws://localhost/", "http://localhost/")
 	if err != nil {

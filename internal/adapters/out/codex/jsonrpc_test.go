@@ -320,6 +320,18 @@ func TestIsOverloadedError(t *testing.T) {
 	}
 }
 
+type multiWrappedError struct {
+	errs []error
+}
+
+func (e multiWrappedError) Error() string {
+	return "multi wrapped error"
+}
+
+func (e multiWrappedError) Unwrap() []error {
+	return e.errs
+}
+
 func TestRPCErrorFromError(t *testing.T) {
 	rpcErr := &RPCError{Code: -32001, Message: "overloaded"}
 
@@ -334,6 +346,18 @@ func TestRPCErrorFromError(t *testing.T) {
 	got2 := RPCErrorFromError(wrappedWith)
 	if got2 == nil || got2.Code != -32001 {
 		t.Fatal("expected wrapped extraction to work")
+	}
+
+	joined := errors.Join(errors.New("plain"), rpcErr)
+	got3 := RPCErrorFromError(joined)
+	if got3 == nil || got3.Code != -32001 {
+		t.Fatal("expected joined extraction to work")
+	}
+
+	customWrapped := multiWrappedError{errs: []error{errors.New("plain"), fmt.Errorf("inner: %w", rpcErr)}}
+	got4 := RPCErrorFromError(customWrapped)
+	if got4 == nil || got4.Code != -32001 {
+		t.Fatal("expected custom wrapped extraction to work")
 	}
 }
 

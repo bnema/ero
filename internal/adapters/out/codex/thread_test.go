@@ -3,6 +3,7 @@ package codex
 import (
 	"context"
 	"errors"
+	"strconv"
 	"testing"
 	"time"
 )
@@ -491,7 +492,6 @@ func TestBuildMatchPaths(t *testing.T) {
 func TestTimeFields(t *testing.T) {
 	now := time.Now()
 	c := ThreadCandidate{
-		ID:        "thr_time",
 		CreatedAt: now,
 		UpdatedAt: now.Add(time.Hour),
 	}
@@ -731,12 +731,12 @@ func TestRepeatedPageToken(t *testing.T) {
 
 // TestBoundedPagination verifies that the page limit is enforced.
 func TestBoundedPagination(t *testing.T) {
-	// A lister that returns maxStoredThreadPages pages, all with a next token.
+	// A lister that returns maxStoredThreadPages pages, all with a unique next token.
 	pages := make([]ThreadPage, maxStoredThreadPages+1)
-	for i := 0; i < maxStoredThreadPages; i++ {
+	for i := range maxStoredThreadPages {
 		pages[i] = ThreadPage{
 			Items:    []ThreadCandidate{{ID: "thr_dummy"}},
-			NextPage: PageToken(rune('a' + i%26)),
+			NextPage: PageToken("page-" + strconv.Itoa(i)),
 		}
 	}
 	pages[maxStoredThreadPages] = ThreadPage{
@@ -749,6 +749,10 @@ func TestBoundedPagination(t *testing.T) {
 	_, err := collectStoredThreads(context.Background(), lister)
 	if err == nil {
 		t.Fatal("expected error for exceeding max pages")
+	}
+	expected := "codex: stored thread listing exceeded max pages (" + strconv.Itoa(maxStoredThreadPages) + ")"
+	if err.Error() != expected {
+		t.Fatalf("expected max pages error %q, got %q", expected, err.Error())
 	}
 }
 

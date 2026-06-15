@@ -54,6 +54,16 @@ func newManager(configDir, dataDir, gitCommand string) *Manager {
 
 // Install clones or registers a plugin from source.
 func (m *Manager) Install(ctx context.Context, rawSource string) (ports.PluginInstallResult, error) {
+	rawSource = strings.TrimSpace(rawSource)
+	if isBundledSource(rawSource) {
+		return ports.PluginInstallResult{}, bundledLifecycleError("installed", rawSource)
+	}
+	if source, err := ParseLocalSource(rawSource); err == nil {
+		return m.installLocal(source)
+	}
+	if descriptor, ok := bundledDescriptorForInput(rawSource); ok {
+		return ports.PluginInstallResult{}, bundledLifecycleError("installed", descriptor.Source)
+	}
 	source, err := ParseSource(rawSource)
 	if err != nil {
 		return ports.PluginInstallResult{}, err
@@ -69,15 +79,15 @@ func (m *Manager) Install(ctx context.Context, rawSource string) (ports.PluginIn
 	}
 }
 
-// List returns all installed plugins by reading the config and loading
-// manifests from each plugin directory.
+// List returns bundled/default plugins plus user-installed plugins loaded
+// from config and plugin manifests.
 func (m *Manager) List(ctx context.Context) ([]ports.InstalledPlugin, error) {
 	entries, err := m.loadConfig()
 	if err != nil {
 		return nil, err
 	}
 
-	var plugins []ports.InstalledPlugin
+	plugins := bundledInstalledPlugins()
 	for _, entry := range entries.Plugins {
 		source, err := ParseSource(entry.Source)
 		if err != nil {
@@ -119,7 +129,7 @@ func (m *Manager) InstalledPlugins(ctx context.Context) ([]ports.PluginDescripto
 	if err != nil {
 		return nil, err
 	}
-	descriptors := make([]ports.PluginDescriptor, 0, len(entries.Plugins))
+	descriptors := bundledPlugins()
 	for _, entry := range entries.Plugins {
 		source, err := ParseSource(entry.Source)
 		if err != nil {
@@ -139,17 +149,34 @@ func (m *Manager) InstalledPlugins(ctx context.Context) ([]ports.PluginDescripto
 	return descriptors, nil
 }
 
-// Update fetches and resets non-pinned plugins to the latest upstream.
-// Pinned plugins are reported as skipped.
+// Update fetches and resets non-pinned user-installed plugins to the latest
+// upstream. Pinned plugins and bundled/default plugins are reported as skipped.
 func (m *Manager) Update(ctx context.Context, rawSource string) ([]ports.PluginUpdateResult, error) {
+	rawSource = strings.TrimSpace(rawSource)
+	if isBundledSource(rawSource) {
+		return bundledUpdateResults(rawSource), nil
+	}
 	entries, err := m.loadConfig()
 	if err != nil {
 		return nil, err
 	}
 
+	targetIdx := -1
+	if rawSource != "" {
+		idx, _, _, ok := m.findInstalledPluginEntry(entries, rawSource)
+		if ok {
+			targetIdx = idx
+		} else if descriptor, bundled := bundledDescriptorForInput(rawSource); bundled {
+			return bundledUpdateResults(descriptor.Source), nil
+		}
+	}
+
 	var results []ports.PluginUpdateResult
-	for _, entry := range entries.Plugins {
-		if rawSource != "" && entry.Source != rawSource {
+	if rawSource == "" {
+		results = append(results, bundledUpdateResults("")...)
+	}
+	for i, entry := range entries.Plugins {
+		if rawSource != "" && i != targetIdx {
 			continue
 		}
 
@@ -215,31 +242,23 @@ func (m *Manager) Update(ctx context.Context, rawSource string) ([]ports.PluginU
 // Remove deletes a plugin from config and, for managed git clones, removes
 // the data directory. Local source repos are never deleted.
 func (m *Manager) Remove(ctx context.Context, nameOrSource string) (ports.PluginRemoveResult, error) {
+	nameOrSource = strings.TrimSpace(nameOrSource)
+	if isBundledSource(nameOrSource) {
+		return ports.PluginRemoveResult{}, bundledLifecycleError("removed", nameOrSource)
+	}
 	entries, err := m.loadConfig()
 	if err != nil {
 		return ports.PluginRemoveResult{}, err
 	}
 
-	var targetIdx = -1
-	var targetEntry pluginEntry
-	for i, entry := range entries.Plugins {
-		source, err := ParseSource(entry.Source)
-		if err != nil {
-			continue
+	targetIdx, targetEntry, source, ok := m.findInstalledPluginEntry(entries, nameOrSource)
+	if !ok {
+		if descriptor, bundled := bundledDescriptorForInput(nameOrSource); bundled {
+			return ports.PluginRemoveResult{}, bundledLifecycleError("removed", descriptor.Source)
 		}
-		// Match by source string, repo path, directory name, or manifest name.
-		if entry.Source == nameOrSource || source.Path == nameOrSource || source.Repo == nameOrSource || m.pluginName(source) == nameOrSource {
-			targetIdx = i
-			targetEntry = entry
-			break
-		}
-	}
-
-	if targetIdx == -1 {
 		return ports.PluginRemoveResult{}, fmt.Errorf("plugin %q not found in config", nameOrSource)
 	}
 
-	source, _ := ParseSource(targetEntry.Source)
 	pluginDir := m.pluginDir(source)
 
 	// Remove config entry.
@@ -264,6 +283,20 @@ func (m *Manager) Remove(ctx context.Context, nameOrSource string) (ports.Plugin
 }
 
 // ---------- internal helpers ----------
+
+func (m *Manager) findInstalledPluginEntry(entries *pluginConfig, nameOrSource string) (int, pluginEntry, Source, bool) {
+	for i, entry := range entries.Plugins {
+		source, err := ParseSource(entry.Source)
+		if err != nil {
+			continue
+		}
+		// Match by source string, repo path, directory name, or manifest name.
+		if strings.EqualFold(entry.Source, nameOrSource) || strings.EqualFold(source.Path, nameOrSource) || strings.EqualFold(source.Repo, nameOrSource) || strings.EqualFold(m.pluginName(source), nameOrSource) {
+			return i, entry, source, true
+		}
+	}
+	return -1, pluginEntry{}, Source{}, false
+}
 
 func (m *Manager) installGit(ctx context.Context, source Source) (ports.PluginInstallResult, error) {
 	pluginDir := m.pluginDir(source)

@@ -1,0 +1,16 @@
+name = "ero-plugin-codex"
+version = "0.1.0"
+description = "Bundled Codex AI review provider for Ero"
+manifest_version = "1"
+protocol = "ero.plugin.v1"
+
+[runtime]
+command = "./bin/ero-plugin-codex"
+
+[build]
+command = "go build -o ./bin/ero-plugin-codex ./cmd/ero-plugin-codex"
+
+[[contributions]]
+type = "review_provider"
+id = "codex"
+label = "Codex"

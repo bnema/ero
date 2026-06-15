@@ -539,17 +539,11 @@ func IsOverloadedError(err *RPCError) bool {
 // RPCErrorFromError attempts to extract a *RPCError from an error chain via
 // errors.As. Returns nil when the error is not a *RPCError.
 func RPCErrorFromError(err error) *RPCError {
-	if err == nil {
-		return nil
+	var rpcErr *RPCError
+	if errors.As(err, &rpcErr) {
+		return rpcErr
 	}
-	switch e := err.(type) {
-	case *RPCError:
-		return e
-	case interface{ Unwrap() error }:
-		return RPCErrorFromError(e.Unwrap())
-	default:
-		return nil
-	}
+	return nil
 }
 
 // ---------------------------------------------------------------------------

@@ -6,7 +6,7 @@ import (
 	"ero/internal/core"
 )
 
-// PluginLifecycle manages installed plugins for CLI/application entrypoints.
+// PluginLifecycle manages plugin lifecycle commands for CLI/application entrypoints.
 type PluginLifecycle interface {
 	Install(ctx context.Context, source string) (PluginInstallResult, error)
 	List(ctx context.Context) ([]InstalledPlugin, error)
@@ -14,7 +14,7 @@ type PluginLifecycle interface {
 	Remove(ctx context.Context, nameOrSource string) (PluginRemoveResult, error)
 }
 
-// PluginRegistry discovers installed plugins and their contributions.
+// PluginRegistry discovers bundled and installed plugins and their contributions.
 type PluginRegistry interface {
 	InstalledPlugins(ctx context.Context) ([]PluginDescriptor, error)
 }
@@ -33,6 +33,7 @@ type InstalledPlugin struct {
 	Version       string   `json:"version"`
 	Source        string   `json:"source"`
 	Path          string   `json:"path"`
+	Bundled       bool     `json:"bundled,omitempty"`
 	Contributions []string `json:"contributions"`
 }
 
@@ -74,17 +75,13 @@ type ReviewProviderClientFactory interface {
 	CreateReviewProviderClient(ctx context.Context, descriptor ReviewProviderDescriptor) (ReviewProviderClient, error)
 }
 
-// ReviewProviderLoader builds provider clients from installed plugin sources.
-type ReviewProviderLoader interface {
-	LoadReviewProviders(ctx context.Context) ([]ReviewProviderClient, error)
-}
-
-// PluginDescriptor holds static metadata about an installed plugin.
+// PluginDescriptor holds static plugin metadata.
 type PluginDescriptor struct {
 	Name          string
 	Version       string
 	Source        string
 	Path          string
+	Bundled       bool
 	Contributions []PluginContribution
 }
 

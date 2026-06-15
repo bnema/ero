@@ -95,10 +95,12 @@ func pluginDescriptor(key string) ports.ReviewProviderDescriptor {
 	}
 }
 
-// builtinDescriptor returns a descriptor for the Codex builtin provider.
+const bundledCodexProviderKey = "plugin:codex"
+
+// builtinDescriptor returns a descriptor for the bundled Codex provider.
 func builtinDescriptor() ports.ReviewProviderDescriptor {
 	return ports.ReviewProviderDescriptor{
-		Key: BuiltinProviderKeyCodex, PluginName: "Codex", PluginSource: PluginSourceBuiltin,
+		Key: bundledCodexProviderKey, PluginName: "Codex", PluginSource: "bundled:ero-plugin-codex",
 		ContributionID: "codex", Label: "Codex", Type: "review_provider",
 	}
 }
@@ -429,8 +431,8 @@ func TestActiveProviderServiceUsesStableCatalogOrder(t *testing.T) {
 func TestActiveProviderServicePrefersPluginOverBuiltinInCatalogOrder(t *testing.T) {
 	review := testReviewContext()
 	// The plugin key contains "github", so plausibleGitHub matches it first.
-	// The builtin descriptor is in the catalog but never probed because the
-	// plugin succeeds on first probe.
+	// The bundled Codex descriptor is in the catalog but never probed because
+	// the plugin succeeds on first probe.
 	pluginProv := mocks.NewMockReviewProviderClient(t)
 	expectProbe(pluginProv, "plugin:github", true)
 	factory := mocks.NewMockReviewProviderClientFactory(t)
@@ -452,16 +454,16 @@ func TestActiveProviderServiceMixedBuiltinAndPluginPreferenceIsolation(t *testin
 
 	t.Run("builtin preference is respected and saved", func(t *testing.T) {
 		builtinProv := mocks.NewMockReviewProviderClient(t)
-		expectProbe(builtinProv, BuiltinProviderKeyCodex, true)
+		expectProbe(builtinProv, bundledCodexProviderKey, true)
 		factory := mocks.NewMockReviewProviderClientFactory(t)
-		expectFactoryClient(factory, BuiltinProviderKeyCodex, builtinProv)
-		prefs := &memPrefs{key: BuiltinProviderKeyCodex, ok: true}
+		expectFactoryClient(factory, bundledCodexProviderKey, builtinProv)
+		prefs := &memPrefs{key: bundledCodexProviderKey, ok: true}
 		svc := NewActiveProviderService(mockCatalog(t, descs...), factory, nil, prefs, ProviderPollingConfig{})
 		st, err := svc.Start(context.Background(), review)
 		require.NoError(t, err)
-		assert.Equal(t, BuiltinProviderKeyCodex, st.StableProviderKey)
+		assert.Equal(t, bundledCodexProviderKey, st.StableProviderKey)
 		saved, _, _ := prefs.LoadActiveProviderKey(context.Background(), repoIdentity)
-		assert.Equal(t, BuiltinProviderKeyCodex, saved)
+		assert.Equal(t, bundledCodexProviderKey, saved)
 	})
 
 	t.Run("plugin preference is respected and saved", func(t *testing.T) {
@@ -483,42 +485,42 @@ func TestActiveProviderServiceMixedBuiltinAndPluginPreferenceIsolation(t *testin
 		expectProbe(pluginProv, "plugin:github", false)
 		pluginProv.EXPECT().Close().Return(nil).Once()
 		builtinProv := mocks.NewMockReviewProviderClient(t)
-		expectProbe(builtinProv, BuiltinProviderKeyCodex, true)
+		expectProbe(builtinProv, bundledCodexProviderKey, true)
 		factory := mocks.NewMockReviewProviderClientFactory(t)
 		expectFactoryClient(factory, "plugin:github", pluginProv)
-		expectFactoryClient(factory, BuiltinProviderKeyCodex, builtinProv)
+		expectFactoryClient(factory, bundledCodexProviderKey, builtinProv)
 		prefs := &memPrefs{key: "plugin:github", ok: true}
 		svc := NewActiveProviderService(mockCatalog(t, descs...), factory, nil, prefs, ProviderPollingConfig{})
 		st, err := svc.Start(context.Background(), review)
 		require.NoError(t, err)
-		assert.Equal(t, BuiltinProviderKeyCodex, st.StableProviderKey, "should fall back to builtin")
+		assert.Equal(t, bundledCodexProviderKey, st.StableProviderKey, "should fall back to builtin")
 		saved, _, _ := prefs.LoadActiveProviderKey(context.Background(), repoIdentity)
 		assert.Equal(t, "plugin:github", saved, "auto-fallback must not overwrite explicit plugin preference")
 	})
 
 	t.Run("auto-fallback from builtin to plugin preserves builtin preference", func(t *testing.T) {
 		builtinProv := mocks.NewMockReviewProviderClient(t)
-		expectProbe(builtinProv, BuiltinProviderKeyCodex, false)
+		expectProbe(builtinProv, bundledCodexProviderKey, false)
 		builtinProv.EXPECT().Close().Return(nil).Once()
 		pluginProv := mocks.NewMockReviewProviderClient(t)
 		expectProbe(pluginProv, "plugin:github", true)
 		factory := mocks.NewMockReviewProviderClientFactory(t)
-		expectFactoryClient(factory, BuiltinProviderKeyCodex, builtinProv)
+		expectFactoryClient(factory, bundledCodexProviderKey, builtinProv)
 		expectFactoryClient(factory, "plugin:github", pluginProv)
-		prefs := &memPrefs{key: BuiltinProviderKeyCodex, ok: true}
+		prefs := &memPrefs{key: bundledCodexProviderKey, ok: true}
 		svc := NewActiveProviderService(mockCatalog(t, descs...), factory, nil, prefs, ProviderPollingConfig{})
 		st, err := svc.Start(context.Background(), review)
 		require.NoError(t, err)
 		assert.Equal(t, "plugin:github", st.StableProviderKey, "should fall back to plugin")
 		saved, _, _ := prefs.LoadActiveProviderKey(context.Background(), repoIdentity)
-		assert.Equal(t, BuiltinProviderKeyCodex, saved, "auto-fallback must not overwrite explicit builtin preference")
+		assert.Equal(t, bundledCodexProviderKey, saved, "auto-fallback must not overwrite explicit builtin preference")
 	})
 }
 
 func TestActiveProviderServiceCacheIsolationBetweenBuiltinAndPlugin(t *testing.T) {
 	review := testReviewContext()
 	pluginKey := "plugin:github"
-	builtinKey := BuiltinProviderKeyCodex
+	builtinKey := bundledCodexProviderKey
 
 	cache := &mapCache{}
 	_ = cache.SaveProviderSnapshot(context.Background(), core.ProviderSnapshot{
@@ -586,37 +588,37 @@ func TestActiveProviderServiceSwitchBetweenBuiltinAndPluginUpdatesPreference(t *
 		expectProbe(pluginProv, "plugin:github", true)
 		pluginProv.EXPECT().Close().Return(nil).Once()
 		builtinProv := mocks.NewMockReviewProviderClient(t)
-		expectProbe(builtinProv, BuiltinProviderKeyCodex, true)
+		expectProbe(builtinProv, bundledCodexProviderKey, true)
 		factory := mocks.NewMockReviewProviderClientFactory(t)
 		expectFactoryClient(factory, "plugin:github", pluginProv)
-		expectFactoryClient(factory, BuiltinProviderKeyCodex, builtinProv)
+		expectFactoryClient(factory, bundledCodexProviderKey, builtinProv)
 		prefs := &memPrefs{key: "plugin:github", ok: true}
 		svc := NewActiveProviderService(mockCatalog(t, descs...), factory, nil, prefs, ProviderPollingConfig{})
 		st, err := svc.Start(context.Background(), review)
 		require.NoError(t, err)
 		assert.Equal(t, "plugin:github", st.StableProviderKey)
 
-		st2, err := svc.Switch(context.Background(), review, BuiltinProviderKeyCodex)
+		st2, err := svc.Switch(context.Background(), review, bundledCodexProviderKey)
 		require.NoError(t, err)
-		assert.Equal(t, BuiltinProviderKeyCodex, st2.StableProviderKey)
+		assert.Equal(t, bundledCodexProviderKey, st2.StableProviderKey)
 		saved, _, _ := prefs.LoadActiveProviderKey(context.Background(), repoIdentity)
-		assert.Equal(t, BuiltinProviderKeyCodex, saved, "Switch must update preference to builtin")
+		assert.Equal(t, bundledCodexProviderKey, saved, "Switch must update preference to builtin")
 	})
 
 	t.Run("switch from builtin to plugin", func(t *testing.T) {
 		builtinProv := mocks.NewMockReviewProviderClient(t)
-		expectProbe(builtinProv, BuiltinProviderKeyCodex, true)
+		expectProbe(builtinProv, bundledCodexProviderKey, true)
 		builtinProv.EXPECT().Close().Return(nil).Once()
 		pluginProv := mocks.NewMockReviewProviderClient(t)
 		expectProbe(pluginProv, "plugin:github", true)
 		factory := mocks.NewMockReviewProviderClientFactory(t)
-		expectFactoryClient(factory, BuiltinProviderKeyCodex, builtinProv)
+		expectFactoryClient(factory, bundledCodexProviderKey, builtinProv)
 		expectFactoryClient(factory, "plugin:github", pluginProv)
-		prefs := &memPrefs{key: BuiltinProviderKeyCodex, ok: true}
+		prefs := &memPrefs{key: bundledCodexProviderKey, ok: true}
 		svc := NewActiveProviderService(mockCatalog(t, descs...), factory, nil, prefs, ProviderPollingConfig{})
 		st, err := svc.Start(context.Background(), review)
 		require.NoError(t, err)
-		assert.Equal(t, BuiltinProviderKeyCodex, st.StableProviderKey)
+		assert.Equal(t, bundledCodexProviderKey, st.StableProviderKey)
 
 		st2, err := svc.Switch(context.Background(), review, "plugin:github")
 		require.NoError(t, err)

@@ -10,9 +10,9 @@ import (
 // ---------------------------------------------------------------------------
 // External identifier builders
 //
-// Stable external IDs are derived from Codex thread/turn identifiers so that
-// phase-3 can map PublishReviewResult back to the corresponding Codex thread
-// and turn.
+// Stable external IDs are derived from Codex thread/turn identifiers so the
+// v1 publish flow can map PublishReviewResult back to the corresponding Codex
+// thread and turn.
 // ---------------------------------------------------------------------------
 
 // BuildExternalReviewID creates a stable provider-scoped external review
@@ -110,7 +110,7 @@ func ParseExternalCommentID(externalID string) (threadID, turnID string, comment
 // ---------------------------------------------------------------------------
 // Publish message formatting
 //
-// The builtin Codex provider publishes a review by sending a structured user
+// The bundled Codex provider publishes a review by sending a structured user
 // message via turn/start. The message includes a summary, the overall
 // decision, and inline comments with file paths and ranges.
 // ---------------------------------------------------------------------------
@@ -226,7 +226,7 @@ func formatLineRef(oldStart, newStart int) string {
 }
 
 // BuildPublishMessage constructs a PublishMessage from the review components
-// that phase-3 will receive via PublishReviewRequest.
+// received via PublishReviewRequest.
 //
 // Parameters:
 //   - summary: the review overview text

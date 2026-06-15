@@ -22,7 +22,9 @@ func TestProbeSocketExists(t *testing.T) {
 	if err != nil {
 		t.Fatalf("create temp socket: %v", err)
 	}
-	f.Close()
+	if err := f.Close(); err != nil {
+		t.Fatalf("close temp socket: %v", err)
+	}
 
 	// ProbeSocket checks the mode bit which requires ModeSocket. A regular
 	// file won't have that bit, so we expect false.
@@ -317,7 +319,11 @@ func TestDialLiveSessionHonorsContextDuringHandshake(t *testing.T) {
 	if err != nil {
 		t.Fatalf("listen unix: %v", err)
 	}
-	defer ln.Close()
+	t.Cleanup(func() {
+		if err := ln.Close(); err != nil {
+			t.Errorf("close listener: %v", err)
+		}
+	})
 
 	accepted := make(chan net.Conn, 1)
 	go func() {

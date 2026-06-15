@@ -123,12 +123,13 @@ func NewAppServerClient(ctx context.Context, cfg Config) (*AppServerClient, erro
 	// Capture stderr for diagnostics but discard (too noisy during tests).
 	cmd.Stderr = io.Discard
 
-	// Ensure the child process is terminated when the parent (builtin runtime)
+	// Ensure the child process is terminated when the parent bundled runtime
 	// dies, preventing orphaned subprocesses on abrupt exit.
 	setParentDeathSignal(cmd)
 
 	if err := cmd.Start(); err != nil {
 		_ = stdin.Close()
+		_ = stdout.Close()
 		return nil, fmt.Errorf("codex: start app-server: %w", err)
 	}
 
@@ -242,14 +243,19 @@ func (c *AppServerClient) ListLoadedThreads(ctx context.Context) ([]ThreadCandid
 		}
 		// Enrich with details (CWD, preview, status) so loaded-thread
 		// CWD matching works correctly for live session auto-select.
-		if details, err := c.readThread(ctx, tid); err == nil {
-			candidates[i].CWD = details.CWD
-			candidates[i].SessionKey = details.SessionKey
-			candidates[i].Preview = details.Preview
-			candidates[i].Status = details.Status
-			candidates[i].CreatedAt = details.CreatedAt
-			candidates[i].UpdatedAt = details.UpdatedAt
+		details, err := c.readThread(ctx, tid)
+		if err != nil {
+			if IsUnsupportedError(RPCErrorFromError(err)) {
+				continue
+			}
+			return nil, fmt.Errorf("codex: read loaded thread %q: %w", tid, err)
 		}
+		candidates[i].CWD = details.CWD
+		candidates[i].SessionKey = details.SessionKey
+		candidates[i].Preview = details.Preview
+		candidates[i].Status = details.Status
+		candidates[i].CreatedAt = details.CreatedAt
+		candidates[i].UpdatedAt = details.UpdatedAt
 	}
 	return candidates, nil
 }
@@ -530,15 +536,9 @@ func (c *AppServerClient) Close() error {
 // Internal helpers
 // ---------------------------------------------------------------------------
 
-// sendRequest marshals params, sends a JSON-RPC request, and returns the
+// sendRequestRaw marshals params, sends a JSON-RPC request, and returns the
 // allocated request ID. The caller must call readResponse or readResponseJSON
 // to consume the matching response.
-func (c *AppServerClient) sendRequest(ctx context.Context, method string, params any) error {
-	_, err := c.sendRequestRaw(ctx, method, params)
-	return err
-}
-
-// sendRequestRaw is like sendRequest but also returns the allocated request ID.
 func (c *AppServerClient) sendRequestRaw(ctx context.Context, method string, params any) (json.RawMessage, error) {
 	c.mu.Lock()
 	defer c.mu.Unlock()

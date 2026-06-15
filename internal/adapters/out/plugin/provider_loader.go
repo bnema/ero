@@ -18,14 +18,14 @@ import (
 	pluginsdk "ero/pkg/plugin"
 )
 
-// ReviewProviderLoader builds review provider clients from installed plugin manifests.
+// ReviewProviderLoader builds review provider clients from bundled and user-installed plugin manifests.
 type ReviewProviderLoader struct {
 	registry      ports.PluginRegistry
 	timeout       time.Duration
 	clientFactory func(context.Context, ports.ReviewProviderDescriptor) (ports.ReviewProviderClient, error)
 }
 
-// NewReviewProviderLoader creates a loader backed by an installed plugin registry.
+// NewReviewProviderLoader creates a loader backed by the plugin registry.
 func NewReviewProviderLoader(registry ports.PluginRegistry) *ReviewProviderLoader {
 	loader := &ReviewProviderLoader{registry: registry, timeout: DefaultPluginTimeout}
 	loader.clientFactory = loader.createReviewProviderClient
@@ -64,8 +64,8 @@ func (l *ReviewProviderLoader) CreateReviewProviderClient(ctx context.Context, d
 	return l.clientFactory(ctx, descriptor)
 }
 
-// LoadReviewProviders implements ports.ReviewProviderLoader as a temporary compatibility shim.
-func (l *ReviewProviderLoader) LoadReviewProviders(ctx context.Context) ([]ports.ReviewProviderClient, error) {
+// CreateReviewProviderClients creates clients for every discovered review provider contribution.
+func (l *ReviewProviderLoader) CreateReviewProviderClients(ctx context.Context) ([]ports.ReviewProviderClient, error) {
 	descriptors, err := l.ListReviewProviderDescriptors(ctx)
 	if err != nil {
 		return nil, err
@@ -116,6 +116,12 @@ func stableReviewProviderKey(descriptor ports.PluginDescriptor, contribution por
 }
 
 func canonicalInstalledPluginIdentity(descriptor ports.PluginDescriptor) string {
+	if descriptor.Bundled {
+		if isBundledSource(descriptor.Source) {
+			return strings.ToLower(strings.TrimSpace(descriptor.Source))
+		}
+		return strings.ToLower(strings.Join([]string{"bundled", descriptor.Name, descriptor.Version}, ":"))
+	}
 	if source, err := ParseSource(descriptor.Source); err == nil {
 		switch source.Type {
 		case SourceTypeGit:
@@ -156,7 +162,7 @@ func runtimeCommandPath(command, pluginDir string) string {
 
 func shouldBuildRuntime(command, pluginDir, buildCommand string) bool {
 	buildCommand = strings.TrimSpace(buildCommand)
-	if buildCommand == "" {
+	if buildCommand == "" || !pluginCanBuildLocally(pluginDir, buildCommand) {
 		return false
 	}
 	runtimeInfo, available := runtimeCommandInfo(command, pluginDir)
@@ -167,6 +173,38 @@ func shouldBuildRuntime(command, pluginDir, buildCommand string) bool {
 		return false
 	}
 	return pluginSourceNewerThanRuntime(pluginDir, runtimeCommandPath(command, pluginDir), runtimeInfo.ModTime(), buildCommand)
+}
+
+func pluginCanBuildLocally(pluginDir, buildCommand string) bool {
+	if pluginHasGoSource(pluginDir) {
+		return true
+	}
+	buildCommandName, _ := splitRuntimeCommand(buildCommand)
+	if buildCommandName == "" || !strings.Contains(buildCommandName, "/") {
+		return false
+	}
+	info, err := os.Stat(runtimeCommandPath(buildCommandName, pluginDir))
+	return err == nil && !info.IsDir()
+}
+
+func pluginHasGoSource(pluginDir string) bool {
+	hasSource := false
+	_ = filepath.WalkDir(pluginDir, func(path string, d os.DirEntry, err error) error {
+		if err != nil || hasSource {
+			return nil
+		}
+		if d.IsDir() {
+			if d.Name() == ".git" || d.Name() == "bin" {
+				return filepath.SkipDir
+			}
+			return nil
+		}
+		if filepath.Ext(path) == ".go" {
+			hasSource = true
+		}
+		return nil
+	})
+	return hasSource
 }
 
 func pluginSourceNewerThanRuntime(pluginDir, runtimePath string, runtimeModTime time.Time, buildCommand string) bool {

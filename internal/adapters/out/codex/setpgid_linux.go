@@ -8,7 +8,7 @@ import (
 )
 
 // setParentDeathSignal configures the child process to receive SIGTERM when
-// the parent (ero builtin runtime) dies. This prevents orphaned app-server
+// the parent bundled runtime dies. This prevents orphaned app-server
 // subprocesses when the runtime is killed abruptly.
 //
 // Linux provides Pdeathsig in SysProcAttr for this purpose. On other

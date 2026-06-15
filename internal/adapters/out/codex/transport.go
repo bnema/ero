@@ -1,6 +1,6 @@
 // Package codex provides pure Go types, helpers, and contracts for
 // integrating with the Codex app-server JSON-RPC surface. It is the contract
-// foundation for the builtin Codex review provider.
+// foundation for the bundled Codex review provider.
 //
 // Transport rule of thumb: prefer a live-session capable transport (direct
 // unix-websocket — also called "live" mode, with "proxy" as a backward-
@@ -8,8 +8,8 @@
 // stored-thread resume or new-thread delivery when no live control-plane
 // connection is reachable.
 //
-// The types in this package carry no I/O dependencies so that phase-3
-// integration tests can substitute any transport implementation.
+// The types in this package carry no I/O dependencies so integration tests
+// can substitute any transport implementation.
 package codex
 
 import (
@@ -229,8 +229,8 @@ func (a TransportAvailability) String() string {
 //  1. If preferred is live-session capable AND reachable, return preferred.
 //  2. Otherwise return fallback (typically stdio for thread resume/delivery).
 //
-// This is the rich form that phase-3 wiring should call after obtaining
-// reachability information via I/O checks (socket stat, proxy probe, ping).
+// This is the rich form callers should use after obtaining reachability
+// information via I/O checks (socket stat, proxy probe, ping).
 // See BestAvailableTransport for the simplified form that assumes preferred
 // is always reachable.
 func SelectTransport(preferred, fallback TransportConfig, avail TransportAvailability) TransportConfig {
