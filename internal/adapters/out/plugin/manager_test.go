@@ -171,7 +171,7 @@ func TestManagerInstallGitPinnedRef(t *testing.T) {
 	updates, err := mgr.Update(ctx, "")
 	require.NoError(t, err)
 	codexUpdate := requireUpdateBySource(t, updates, "bundled:ero-plugin-codex")
-	assert.Contains(t, codexUpdate.Message, "bundled/default")
+	assert.Contains(t, codexUpdate.Message, "shipped")
 	assert.Contains(t, updates[len(updates)-1].Message, "pinned")
 }
 
@@ -197,7 +197,7 @@ func TestManagerUpdateGitFileURL(t *testing.T) {
 	updates, err := mgr.Update(ctx, "")
 	require.NoError(t, err)
 	codexUpdate := requireUpdateBySource(t, updates, "bundled:ero-plugin-codex")
-	assert.Contains(t, codexUpdate.Message, "bundled/default")
+	assert.Contains(t, codexUpdate.Message, "shipped")
 	gitUpdate := updates[len(updates)-1]
 	assert.NotEmpty(t, gitUpdate.PreviousRef)
 	assert.NotEmpty(t, gitUpdate.UpdatedRef)
@@ -297,7 +297,7 @@ func TestManagerRemoveNotFound(t *testing.T) {
 	assert.Contains(t, err.Error(), "not found")
 }
 
-func TestManagerListEmptyConfigIncludesBundledCodex(t *testing.T) {
+func TestManagerListEmptyConfigIncludesShippedProviders(t *testing.T) {
 	t.Parallel()
 
 	mgr := setupTestManager(t)
@@ -305,19 +305,48 @@ func TestManagerListEmptyConfigIncludesBundledCodex(t *testing.T) {
 	ctx := context.Background()
 	plugins, err := mgr.List(ctx)
 	require.NoError(t, err)
-	codex := requireInstalledPluginBySource(t, plugins, "bundled:ero-plugin-codex")
-	assert.True(t, codex.Bundled)
-	assert.Equal(t, "ero-plugin-codex", codex.Name)
+	for _, source := range []string{"bundled:ero-plugin-codex", "bundled:ero-plugin-github", "bundled:ero-plugin-pi-coding-agent"} {
+		plugin := requireInstalledPluginBySource(t, plugins, source)
+		assert.True(t, plugin.Bundled)
+		assert.NotEmpty(t, plugin.Path)
+	}
 	bundledCount := 0
 	for _, plugin := range plugins {
 		if plugin.Bundled {
 			bundledCount++
 		}
 	}
-	assert.Equal(t, 1, bundledCount)
+	assert.Equal(t, 3, bundledCount)
 }
 
-func TestManagerUpdateAllReportsBundledCodexSkipped(t *testing.T) {
+func TestManagerListDedupesInstalledEntriesThatPointAtShippedPluginPaths(t *testing.T) {
+	t.Parallel()
+
+	mgr := setupTestManager(t)
+	shipped := bundledPlugins()
+	require.NotEmpty(t, shipped)
+	cfg, err := mgr.loadConfig()
+	require.NoError(t, err)
+	for _, descriptor := range shipped {
+		cfg.Plugins = append(cfg.Plugins, pluginEntry{Source: descriptor.Path})
+	}
+	require.NoError(t, mgr.saveConfig(cfg))
+
+	plugins, err := mgr.List(context.Background())
+	require.NoError(t, err)
+
+	byPath := map[string]int{}
+	for _, plugin := range plugins {
+		if plugin.Path != "" {
+			byPath[cleanPathKey(plugin.Path)]++
+		}
+	}
+	for _, descriptor := range shipped {
+		assert.Equal(t, 1, byPath[cleanPathKey(descriptor.Path)], descriptor.Path)
+	}
+}
+
+func TestManagerUpdateAllReportsShippedProvidersSkipped(t *testing.T) {
 	t.Parallel()
 
 	mgr := setupTestManager(t)
@@ -325,7 +354,7 @@ func TestManagerUpdateAllReportsBundledCodexSkipped(t *testing.T) {
 	require.NoError(t, err)
 	codexUpdate := requireUpdateBySource(t, updates, "bundled:ero-plugin-codex")
 	assert.Equal(t, "ero-plugin-codex", codexUpdate.Name)
-	assert.Contains(t, codexUpdate.Message, "bundled/default")
+	assert.Contains(t, codexUpdate.Message, "shipped")
 	assert.Contains(t, codexUpdate.Message, "cannot be updated")
 }
 
@@ -408,7 +437,7 @@ func TestManagerBundledCodexLifecycle(t *testing.T) {
 		t.Run("install "+alias, func(t *testing.T) {
 			_, err := mgr.Install(ctx, alias)
 			require.Error(t, err)
-			assert.Contains(t, err.Error(), "bundled/default")
+			assert.Contains(t, err.Error(), "shipped")
 			assert.Contains(t, err.Error(), "cannot be installed")
 		})
 
@@ -418,14 +447,14 @@ func TestManagerBundledCodexLifecycle(t *testing.T) {
 			require.Len(t, updates, 1)
 			assert.Equal(t, "bundled:ero-plugin-codex", updates[0].Source)
 			assert.Equal(t, "ero-plugin-codex", updates[0].Name)
-			assert.Contains(t, updates[0].Message, "bundled/default")
+			assert.Contains(t, updates[0].Message, "shipped")
 			assert.Contains(t, updates[0].Message, "cannot be updated")
 		})
 
 		t.Run("remove "+alias, func(t *testing.T) {
 			_, err := mgr.Remove(ctx, alias)
 			require.Error(t, err)
-			assert.Contains(t, err.Error(), "bundled/default")
+			assert.Contains(t, err.Error(), "shipped")
 			assert.Contains(t, err.Error(), "cannot be removed")
 		})
 	}
@@ -483,7 +512,7 @@ func TestManagerUpdateLocalSkipped(t *testing.T) {
 	require.NoError(t, err)
 
 	codexUpdate := requireUpdateBySource(t, updates, "bundled:ero-plugin-codex")
-	assert.Contains(t, codexUpdate.Message, "bundled/default")
+	assert.Contains(t, codexUpdate.Message, "shipped")
 	assert.Contains(t, updates[len(updates)-1].Message, "local sources are not updated automatically")
 }
 
@@ -503,7 +532,7 @@ func TestManagerUpdatePinnedConfig(t *testing.T) {
 	require.NoError(t, err)
 
 	codexUpdate := requireUpdateBySource(t, updates, "bundled:ero-plugin-codex")
-	assert.Contains(t, codexUpdate.Message, "bundled/default")
+	assert.Contains(t, codexUpdate.Message, "shipped")
 	assert.Contains(t, updates[len(updates)-1].Message, "pinned")
 }
 

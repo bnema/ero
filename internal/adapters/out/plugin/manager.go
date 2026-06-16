@@ -79,7 +79,7 @@ func (m *Manager) Install(ctx context.Context, rawSource string) (ports.PluginIn
 	}
 }
 
-// List returns bundled/default plugins plus user-installed plugins loaded
+// List returns shipped plugins plus user-installed plugins loaded
 // from config and plugin manifests.
 func (m *Manager) List(ctx context.Context) ([]ports.InstalledPlugin, error) {
 	entries, err := m.loadConfig()
@@ -88,6 +88,7 @@ func (m *Manager) List(ctx context.Context) ([]ports.InstalledPlugin, error) {
 	}
 
 	plugins := bundledInstalledPlugins()
+	shippedPaths := shippedPluginPathSet(plugins)
 	for _, entry := range entries.Plugins {
 		source, err := ParseSource(entry.Source)
 		if err != nil {
@@ -95,6 +96,9 @@ func (m *Manager) List(ctx context.Context) ([]ports.InstalledPlugin, error) {
 		}
 
 		pluginDir := m.pluginDir(source)
+		if _, shipped := shippedPaths[cleanPathKey(pluginDir)]; shipped {
+			continue
+		}
 		manifest, err := LoadManifest(pluginDir)
 		if err != nil {
 			// Plugin dir exists but manifest is broken — still list it.
@@ -130,12 +134,16 @@ func (m *Manager) InstalledPlugins(ctx context.Context) ([]ports.PluginDescripto
 		return nil, err
 	}
 	descriptors := bundledPlugins()
+	shippedPaths := shippedDescriptorPathSet(descriptors)
 	for _, entry := range entries.Plugins {
 		source, err := ParseSource(entry.Source)
 		if err != nil {
 			continue
 		}
 		pluginDir := m.pluginDir(source)
+		if _, shipped := shippedPaths[cleanPathKey(pluginDir)]; shipped {
+			continue
+		}
 		manifest, err := LoadManifest(pluginDir)
 		if err != nil {
 			continue
@@ -149,8 +157,28 @@ func (m *Manager) InstalledPlugins(ctx context.Context) ([]ports.PluginDescripto
 	return descriptors, nil
 }
 
+func shippedPluginPathSet(plugins []ports.InstalledPlugin) map[string]struct{} {
+	paths := make(map[string]struct{}, len(plugins))
+	for _, plugin := range plugins {
+		if plugin.Bundled && plugin.Path != "" {
+			paths[cleanPathKey(plugin.Path)] = struct{}{}
+		}
+	}
+	return paths
+}
+
+func shippedDescriptorPathSet(descriptors []ports.PluginDescriptor) map[string]struct{} {
+	paths := make(map[string]struct{}, len(descriptors))
+	for _, descriptor := range descriptors {
+		if descriptor.Bundled && descriptor.Path != "" {
+			paths[cleanPathKey(descriptor.Path)] = struct{}{}
+		}
+	}
+	return paths
+}
+
 // Update fetches and resets non-pinned user-installed plugins to the latest
-// upstream. Pinned plugins and bundled/default plugins are reported as skipped.
+// upstream. Pinned plugins and shipped plugins are reported as skipped.
 func (m *Manager) Update(ctx context.Context, rawSource string) ([]ports.PluginUpdateResult, error) {
 	rawSource = strings.TrimSpace(rawSource)
 	if isBundledSource(rawSource) {

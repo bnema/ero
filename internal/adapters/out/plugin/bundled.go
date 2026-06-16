@@ -15,7 +15,7 @@ const (
 	bundledCodexName        = "ero-plugin-codex"
 	bundledCodexDirName     = "codex"
 	bundledCodexSource      = bundledSourcePrefix + bundledCodexName
-	bundledLifecycleMessage = "bundled/default plugin %q is included with ero and cannot be %s"
+	bundledLifecycleMessage = "shipped plugin %q is included with ero and cannot be %s"
 )
 
 type bundledPluginRoot struct {
@@ -60,22 +60,7 @@ func discoverBundledPluginRoots(searchDirs []string) []bundledPluginRoot {
 }
 
 func discoverDefaultBundledPluginRoots() []bundledPluginRoot {
-	roots := make([]bundledPluginRoot, 0, 1)
-	seen := map[string]struct{}{}
-	for _, baseDir := range defaultBundledPluginBaseDirs() {
-		pluginDir := filepath.Join(baseDir, bundledCodexDirName)
-		manifest, err := LoadManifest(pluginDir)
-		if err != nil || !strings.EqualFold(strings.TrimSpace(manifest.Name), bundledCodexName) {
-			continue
-		}
-		pathKey := cleanPathKey(pluginDir)
-		if _, ok := seen[pathKey]; ok {
-			continue
-		}
-		seen[pathKey] = struct{}{}
-		roots = append(roots, bundledPluginRoot{Source: bundledCodexSource, Path: pluginDir})
-	}
-	return roots
+	return discoverBundledPluginRoots(defaultBundledPluginBaseDirs())
 }
 
 func bundledPluginSearchDirsFromEnv() []string {
@@ -232,13 +217,13 @@ func bundledUpdateResults(source string) []ports.PluginUpdateResult {
 			return []ports.PluginUpdateResult{{
 				Source:  descriptor.Source,
 				Name:    descriptor.Name,
-				Message: "bundled/default plugin is included with ero and cannot be updated by plugin update",
+				Message: "shipped plugin is included with ero and cannot be updated by plugin update",
 			}}
 		}
 		if isBundledSource(source) {
 			return []ports.PluginUpdateResult{{
 				Source:  source,
-				Message: "bundled/default plugin is included with ero and cannot be updated by plugin update",
+				Message: "shipped plugin is included with ero and cannot be updated by plugin update",
 			}}
 		}
 		return results
@@ -247,7 +232,7 @@ func bundledUpdateResults(source string) []ports.PluginUpdateResult {
 		results = append(results, ports.PluginUpdateResult{
 			Source:  descriptor.Source,
 			Name:    descriptor.Name,
-			Message: "bundled/default plugin is included with ero and cannot be updated by plugin update",
+			Message: "shipped plugin is included with ero and cannot be updated by plugin update",
 		})
 	}
 	return results

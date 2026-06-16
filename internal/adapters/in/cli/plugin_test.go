@@ -31,14 +31,15 @@ func TestPluginCommandRegisteredUnderParent(t *testing.T) {
 	assert.Equal(t, "List available plugins", listCmd.Short)
 }
 
-func TestPluginCommandLongHelpMentionsBundledCodexPackagingConstraints(t *testing.T) {
+func TestPluginCommandLongHelpMentionsShippedPluginPackagingConstraints(t *testing.T) {
 	t.Parallel()
 
 	manager := mocks.NewMockPluginLifecycle(t)
 	cmd := NewPluginCommand(manager, nil)
 
-	assert.Contains(t, cmd.Long, "packaged releases and source checkouts")
+	assert.Contains(t, cmd.Long, "packaged releases and source")
 	assert.Contains(t, cmd.Long, "go install ./cmd/ero installs only the ero binary")
+	assert.Contains(t, cmd.Long, "shipped plugin")
 }
 
 func TestPluginListEmpty(t *testing.T) {
@@ -290,12 +291,12 @@ func stripANSI(s string) string {
 
 // ---------- regression: bundled Codex lifecycle UX ----------
 
-func TestPluginListShowsBundledCodex(t *testing.T) {
+func TestPluginListShowsShippedPluginsConsistently(t *testing.T) {
 	t.Parallel()
 
 	plugins := []ports.InstalledPlugin{
-		{Name: "Codex", Version: "bundled", Source: "bundled:ero-plugin-codex", Bundled: true, Contributions: []string{"review_provider:codex"}},
-		{Name: "github", Version: "0.1.0", Source: "git:github.com/ero-plugins/github@v0.1.0", Contributions: []string{"review_provider:github"}},
+		{Name: "ero-plugin-codex", Version: "0.1.0", Source: "bundled:ero-plugin-codex", Path: "/repo/plugins/codex", Bundled: true, Contributions: []string{"review_provider:codex"}},
+		{Name: "ero-plugin-github", Version: "0.1.0", Source: "bundled:ero-plugin-github", Path: "/repo/plugins/github", Bundled: true, Contributions: []string{"review_provider:github"}},
 	}
 	manager := mocks.NewMockPluginLifecycle(t)
 	manager.EXPECT().List(mock.Anything).Return(plugins, nil)
@@ -310,10 +311,12 @@ func TestPluginListShowsBundledCodex(t *testing.T) {
 	require.NoError(t, err)
 
 	output := stripANSI(out.String())
-	assert.Contains(t, output, "Codex vbundled (bundled/default)")
-	assert.Contains(t, output, "review_provider:codex")
-	assert.Contains(t, output, "bundled:ero-plugin-codex")
-	assert.Contains(t, output, "github")
+	assert.Contains(t, output, "ero-plugin-codex v0.1.0")
+	assert.Contains(t, output, "ero-plugin-github v0.1.0")
+	assert.NotContains(t, output, "(shipped)")
+	assert.Contains(t, output, "source    /repo/plugins/codex")
+	assert.Contains(t, output, "source    /repo/plugins/github")
+	assert.Contains(t, output, "managed   shipped")
 }
 
 func TestPluginRemoveWithBundledCodexFailsClearly(t *testing.T) {
@@ -321,7 +324,7 @@ func TestPluginRemoveWithBundledCodexFailsClearly(t *testing.T) {
 
 	manager := mocks.NewMockPluginLifecycle(t)
 	manager.EXPECT().Remove(mock.Anything, "bundled:ero-plugin-codex").
-		Return(ports.PluginRemoveResult{}, errors.New("bundled/default plugin \"bundled:ero-plugin-codex\" is included with ero and cannot be removed"))
+		Return(ports.PluginRemoveResult{}, errors.New("shipped plugin \"bundled:ero-plugin-codex\" is included with ero and cannot be removed"))
 
 	cmd := NewPluginCommand(manager, nil)
 
@@ -331,7 +334,7 @@ func TestPluginRemoveWithBundledCodexFailsClearly(t *testing.T) {
 
 	err := cmd.Execute()
 	require.Error(t, err)
-	assert.Contains(t, err.Error(), "bundled/default")
+	assert.Contains(t, err.Error(), "shipped")
 	assert.Contains(t, err.Error(), "cannot be removed")
 }
 
@@ -342,7 +345,7 @@ func TestPluginUpdateWithBundledCodexReportsSkipped(t *testing.T) {
 	manager.EXPECT().Update(mock.Anything, "bundled:ero-plugin-codex").Return([]ports.PluginUpdateResult{{
 		Source:  "bundled:ero-plugin-codex",
 		Name:    "ero-plugin-codex",
-		Message: "bundled/default plugin is included with ero and cannot be updated by plugin update",
+		Message: "shipped plugin is included with ero and cannot be updated by plugin update",
 	}}, nil)
 
 	cmd := NewPluginCommand(manager, nil)
@@ -355,7 +358,7 @@ func TestPluginUpdateWithBundledCodexReportsSkipped(t *testing.T) {
 	require.NoError(t, err)
 	output := stripANSI(out.String())
 	assert.Contains(t, output, "ero-plugin-codex")
-	assert.Contains(t, output, "bundled/default")
+	assert.Contains(t, output, "shipped")
 	assert.Contains(t, output, "cannot be updated")
 }
 
@@ -364,7 +367,7 @@ func TestPluginInstallWithBundledCodexIdentifier(t *testing.T) {
 
 	manager := mocks.NewMockPluginLifecycle(t)
 	manager.EXPECT().Install(mock.Anything, "bundled:ero-plugin-codex").
-		Return(ports.PluginInstallResult{}, errors.New("bundled/default plugin \"bundled:ero-plugin-codex\" is included with ero and cannot be installed"))
+		Return(ports.PluginInstallResult{}, errors.New("shipped plugin \"bundled:ero-plugin-codex\" is included with ero and cannot be installed"))
 
 	cmd := NewPluginCommand(manager, nil)
 
@@ -374,7 +377,7 @@ func TestPluginInstallWithBundledCodexIdentifier(t *testing.T) {
 
 	err := cmd.Execute()
 	require.Error(t, err)
-	assert.Contains(t, err.Error(), "bundled/default")
+	assert.Contains(t, err.Error(), "shipped")
 	assert.Contains(t, err.Error(), "cannot be installed")
 }
 

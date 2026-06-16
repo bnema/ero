@@ -29,14 +29,15 @@ system stores metadata in your Ero config directory and manages plugin data
 under the Ero data directory. Local plugins are tracked by reference; their
 repositories are never deleted by Ero.
 
-Codex is bundled/default in packaged releases and source checkouts: it is
-available without installation, appears in provider discovery and plugin list,
-runs through the normal plugin/provider path, and cannot be installed,
-removed, or updated through plugin lifecycle commands. go install ./cmd/ero installs only the ero binary; bundled Codex assets come from packaged release
-layouts or from plugins/codex when you run inside a source checkout. The
-lifecycle commands reject the bundled identifiers codex, Codex,
-ero-plugin-codex, and bundled:ero-plugin-codex unless one of those names
-resolves to a real user-installed or local-path plugin.`,
+Ero ships maintained providers under plugins/ in packaged releases and source
+checkouts. Shipped plugins are available without installation, appear in
+provider discovery and plugin list, run through the normal plugin/provider
+path, and cannot be installed, removed, or updated through plugin lifecycle
+commands. go install ./cmd/ero installs only the ero binary; shipped plugin
+assets come from packaged release layouts or from plugins/ when you run inside
+a source checkout. The lifecycle commands reject shipped provider identifiers
+such as codex, github, pi-coding-agent, and bundled:ero-plugin-codex unless one
+of those names resolves to a real user-installed or local-path plugin.`,
 	}
 
 	var jsonOutput bool

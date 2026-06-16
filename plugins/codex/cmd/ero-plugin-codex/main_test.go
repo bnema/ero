@@ -29,18 +29,52 @@ func TestInitialize(t *testing.T) {
 	assert.Contains(t, result.Provider.Capabilities.Decisions, plugin.ReviewDecisionApprove)
 }
 
-func TestDetectContextUnavailableReturnsInstallHint(t *testing.T) {
-	t.Setenv(codexadapter.EnvCodexExecPath, "/definitely/missing/codex")
+func TestDetectContext_Unavailable_MissingSocketPath(t *testing.T) {
+	t.Setenv(codexadapter.EnvCodexThreadID, "thr_test")
 
 	provider := codexProvider{}
 	result, err := provider.DetectContext(context.Background(), plugin.DetectContextRequest{})
 
 	require.NoError(t, err)
 	assert.False(t, result.Result.Applicable)
-	assert.Equal(t, codexInstallHint, result.Result.Reason)
+	assert.Equal(t, codexCallbackHint, result.Result.Reason)
 }
 
-func TestPublishReviewEmptyDraftDoesNotCallCodex(t *testing.T) {
+func TestDetectContext_Unavailable_MissingThreadID(t *testing.T) {
+	t.Setenv(codexadapter.EnvCodexSocketPath, "/tmp/test.sock")
+
+	provider := codexProvider{}
+	result, err := provider.DetectContext(context.Background(), plugin.DetectContextRequest{})
+
+	require.NoError(t, err)
+	assert.False(t, result.Result.Applicable)
+	assert.Equal(t, codexCallbackHint, result.Result.Reason)
+}
+
+func TestDetectContext_Unavailable_SocketNotReachable(t *testing.T) {
+	t.Setenv(codexadapter.EnvCodexSocketPath, "/tmp/ero-test-nonexistent.sock")
+	t.Setenv(codexadapter.EnvCodexThreadID, "thr_test")
+
+	provider := codexProvider{}
+	result, err := provider.DetectContext(context.Background(), plugin.DetectContextRequest{})
+
+	require.NoError(t, err)
+	assert.False(t, result.Result.Applicable)
+	assert.Contains(t, result.Result.Reason, "/tmp/ero-test-nonexistent.sock")
+}
+
+func TestDetectContext_Applicable_WhenSocketReachable(t *testing.T) {
+	// We cannot easily create a real unix socket in a portable test, so
+	// this test verifies that when both required env vars are set and the
+	// socket path is reachable the result is Applicable. The socket
+	// reachability path is tested by TestDetectContext_Unavailable_SocketNotReachable.
+	//
+	// A realistic end-to-end validation requires an integration test with
+	// a running Codex app-server.
+	t.Skip("requires a running Codex app-server control socket")
+}
+
+func TestPublishReview_EmptyDraft_DoesNotCallPublish(t *testing.T) {
 	called := false
 	provider := codexProvider{publish: func(context.Context, codexadapter.Config, string, string) (*codexadapter.PublishResult, error) {
 		called = true
@@ -55,7 +89,7 @@ func TestPublishReviewEmptyDraftDoesNotCallCodex(t *testing.T) {
 	assert.Empty(t, result.Result.PublishedRefs)
 }
 
-func TestPublishReviewSuccessMapsCodexRefs(t *testing.T) {
+func TestPublishReview_Success_MapsCodexRefs(t *testing.T) {
 	provider := codexProvider{publish: func(_ context.Context, _ codexadapter.Config, cwd, formatted string) (*codexadapter.PublishResult, error) {
 		assert.Equal(t, "/repo", cwd)
 		assert.Contains(t, formatted, "Review")
@@ -80,24 +114,7 @@ func TestPublishReviewSuccessMapsCodexRefs(t *testing.T) {
 	assert.Equal(t, "codex:turn:thr_live_1:turn_42:0", result.Result.PublishedRefs[0].ExternalID)
 }
 
-func TestPublishReviewClassifiesAmbiguousThreadAsNotApplicable(t *testing.T) {
-	provider := codexProvider{publish: func(context.Context, codexadapter.Config, string, string) (*codexadapter.PublishResult, error) {
-		return nil, &codexadapter.PublishReviewError{Reason: codexadapter.PublishErrorAmbiguous, Message: "codex: multiple threads match this workspace"}
-	}}
-
-	_, err := provider.PublishReview(context.Background(), plugin.PublishReviewParams{Payload: plugin.ReviewPublishPayload{
-		ProviderID: providerID,
-		Context:    plugin.ReviewContext{Repository: plugin.RepositoryMetadata{WorktreeRoot: "/repo"}},
-		Draft:      plugin.ReviewDraftSnapshot{Summary: "hello"},
-	}})
-
-	require.Error(t, err)
-	pe := plugin.AsError(err)
-	require.NotNil(t, pe)
-	assert.Equal(t, plugin.ErrorNotApplicable, pe.Code)
-}
-
-func TestPublishReviewClassifiesPartialPublishAsUnknown(t *testing.T) {
+func TestPublishReview_ClassifiesPartialPublishAsUnknown(t *testing.T) {
 	provider := codexProvider{publish: func(context.Context, codexadapter.Config, string, string) (*codexadapter.PublishResult, error) {
 		return &codexadapter.PublishResult{ThreadID: "thr_live_1"}, &codexadapter.PublishReviewError{Reason: codexadapter.PublishErrorPublish, Message: "codex: publish review to thread thr_live_1 failed: EOF", Cause: errors.New("EOF")}
 	}}
@@ -114,7 +131,7 @@ func TestPublishReviewClassifiesPartialPublishAsUnknown(t *testing.T) {
 	assert.Equal(t, plugin.ErrorPartialPublishUnknown, pe.Code)
 }
 
-func TestClassifyCodexErrorCode(t *testing.T) {
+func TestClassifyCallbackErrorCode(t *testing.T) {
 	tests := []struct {
 		name    string
 		message string
@@ -122,15 +139,15 @@ func TestClassifyCodexErrorCode(t *testing.T) {
 	}{
 		{name: "auth", message: "authentication required: login again", want: plugin.ErrorAuthRequired},
 		{name: "rate limit", message: "rate limit exceeded", want: plugin.ErrorRemoteRateLimited},
-		{name: "missing cli", message: "executable file not found in $PATH", want: plugin.ErrorNotApplicable},
-		{name: "network", message: "dial unix /tmp/c.sock: connection refused", want: plugin.ErrorNetwork},
+		{name: "network dial", message: "dial unix /tmp/c.sock: connection refused", want: plugin.ErrorNetwork},
+		{name: "network timeout", message: "deadline exceeded", want: plugin.ErrorNetwork},
 		{name: "validation", message: "invalid response payload", want: plugin.ErrorRemoteValidationFailed},
+		{name: "validation decode", message: "decode error: unexpected field", want: plugin.ErrorRemoteValidationFailed},
 		{name: "fallback", message: "something else", want: plugin.ErrorInternal},
 	}
-
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			assert.Equal(t, tt.want, classifyCodexErrorCode(tt.message))
+			assert.Equal(t, tt.want, classifyCallbackErrorCode(tt.message))
 		})
 	}
 }

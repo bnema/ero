@@ -1,46 +1,31 @@
 package codex
 
 import (
-	"bufio"
 	"context"
 	"encoding/json"
 	"fmt"
 	"io"
-	"os"
-	"os/exec"
 	"sync"
 	"time"
 
 	"golang.org/x/net/websocket"
 )
 
-// ---------------------------------------------------------------------------
-// AppServerClient
-//
-// AppServerClient manages a codex app-server subprocess via --stdio JSON-RPC
-// communication. It is designed for one-shot publish-only use: connect,
-// negotiate the handshake, list/select threads, send a turn message, and
-// disconnect cleanly.
-// ---------------------------------------------------------------------------
-
 // providerVersion identifies this adapter to the app-server during
 // the initialize handshake.
 const providerVersion = "ero.plugin.v1"
 
-// AppServerClient communicates with the codex app-server over stdio JSON-RPC
-// or WebSocket (live session). Each public method serialises its full
-// request/response round-trip via an internal flight mutex so that concurrent
-// calls are serialised. After a context/timeout error the transport state is
-// indeterminate and the caller must discard the client (call Close).
+// AppServerClient communicates with the codex app-server over a WebSocket
+// live-session connection. After the initialize handshake, the client is
+// ready for turn/start requests via PublishMessage.
 //
-// Nested calls from within a public method (e.g. ListLoadedThreads calling
-// readThread) do not re-acquire the flight lock; callers must hold the lock.
+// Each public method serialises its full request/response round-trip via an
+// internal flight mutex so that concurrent calls are serialised. After a
+// context/timeout error the transport state is indeterminate and the caller
+// must discard the client (call Close).
 type AppServerClient struct {
 	cfg      Config
-	cmd      *exec.Cmd
 	conn     io.ReadWriteCloser
-	stdin    io.WriteCloser
-	scanner  *bufio.Scanner
 	hs       Handshake
 	mu       sync.Mutex // write + nextID serialisation
 	flightMu sync.Mutex // serialises full round-trips
@@ -49,108 +34,33 @@ type AppServerClient struct {
 	timeout  time.Duration
 
 	// maxMsgSize is the maximum expected JSON-RPC message size.
-	// Used for buffer allocation in the WebSocket read path.
+	// Used for buffer allocation in the non-WebSocket read path.
 	maxMsgSize int
 }
 
-// NewAppServerClient starts an app-server connection and returns a client
-// ready for the initialize handshake. Connection strategy://   - TransportModeLive or TransportModeProxy: dial the existing live session
+// NewAppServerClient connects to a running codex app-server via its unix
+// control socket (WebSocket) and returns a client ready for the initialize
+// handshake. The config must have SocketPath and ThreadID set — call
+// Config.ValidateCallbackTarget to verify.
 //
-//	  via direct unix-websocket; fails with an actionable error if the session
-//	  is not reachable.
-//	- TransportModeAuto: probe the control socket; dial live session when
-//	  reachable, otherwise start a fresh app-server --stdio subprocess.
-//	- TransportModeStdio (or default): always start a subprocess.
-//
-// When a subprocess is started, cfg.CodexHome is passed as CODEX_HOME while
-// preserving the parent environment. When dialing a live session, the socket
-// path is resolved from cfg (EffectiveSocketPath).
+// Unlike the previous multi-mode implementation, this simplified version
+// always dials a live session and does not support stdio subprocess fallback
+// or transport-mode selection.
 func NewAppServerClient(ctx context.Context, cfg Config) (*AppServerClient, error) {
-	// First, determine the live-session path (if applicable).
-	shouldDialLive := false
-
-	switch cfg.Transport {
-	case TransportModeLive, TransportModeProxy:
-		// Live/proxy mode: must dial the live session or fail with an error.
-		shouldDialLive = true
-	case TransportModeAuto:
-		// Auto mode: probe and dial when reachable.
-		sockPath := cfg.EffectiveSocketPath()
-		if sockPath != "" && ProbeSocket(sockPath) {
-			if err := DialSocket(sockPath, SocketAvailabilityTimeout); err == nil {
-				shouldDialLive = true
-			}
-		}
-	default: // TransportModeStdio or unknown
-		shouldDialLive = false
+	if err := cfg.ValidateCallbackTarget(); err != nil {
+		return nil, fmt.Errorf("codex: %w", err)
 	}
-
-	// Dial live session when requested.
-	if shouldDialLive {
-		client, err := DialLiveSession(ctx, cfg)
-		if err != nil {
-			return nil, fmt.Errorf("codex: connect to live session: %w", err)
-		}
-		return client, nil
-	}
-
-	// Fall back to stdio subprocess.
-	execPath, err := cfg.ResolveExecPath()
+	client, err := DialLiveSession(ctx, cfg)
 	if err != nil {
-		return nil, fmt.Errorf("codex: resolve codex binary: %w", err)
+		return nil, fmt.Errorf("codex: connect to live session: %w", err)
 	}
-
-	args := []string{"app-server", "--stdio"}
-	cmd := exec.CommandContext(ctx, execPath, args...)
-
-	stdin, err := cmd.StdinPipe()
-	if err != nil {
-		return nil, fmt.Errorf("codex: stdin pipe: %w", err)
-	}
-
-	stdout, err := cmd.StdoutPipe()
-	if err != nil {
-		_ = stdin.Close()
-		return nil, fmt.Errorf("codex: stdout pipe: %w", err)
-	}
-
-	// Preserve the parent process environment when setting CODEX_HOME.
-	cmd.Env = os.Environ()
-	if cfg.CodexHome != "" {
-		cmd.Env = append(cmd.Env, "CODEX_HOME="+cfg.CodexHome)
-	}
-
-	// Capture stderr for diagnostics but discard (too noisy during tests).
-	cmd.Stderr = io.Discard
-
-	// Ensure the child process is terminated when the parent bundled runtime
-	// dies, preventing orphaned subprocesses on abrupt exit.
-	setParentDeathSignal(cmd)
-
-	if err := cmd.Start(); err != nil {
-		_ = stdin.Close()
-		_ = stdout.Close()
-		return nil, fmt.Errorf("codex: start app-server: %w", err)
-	}
-
-	scanner := bufio.NewScanner(stdout)
-	// Allow lines up to 2 MiB.
-	scanner.Buffer(make([]byte, 2*1024*1024), 2*1024*1024)
-
-	return &AppServerClient{
-		cfg:        cfg,
-		cmd:        cmd,
-		stdin:      stdin,
-		scanner:    scanner,
-		timeout:    cfg.EffectiveTimeout(),
-		maxMsgSize: 2 * 1024 * 1024,
-	}, nil
+	return client, nil
 }
 
 // Initialize performs the JSON-RPC initialize handshake with the app-server.
 // It sends an initialize request, awaits the response, then sends the
 // initialized notification. After Initialize returns successfully, the client
-// is ready for regular requests.
+// is ready for turn/start requests.
 func (c *AppServerClient) Initialize(ctx context.Context) error {
 	c.flightMu.Lock()
 	defer c.flightMu.Unlock()
@@ -190,13 +100,11 @@ func (c *AppServerClient) Initialize(ctx context.Context) error {
 		return err
 	}
 
-	// Step 4: send initialized notification. The stdio transport is JSONL,
-	// so every message (including notifications) must be newline-delimited.
+	// Step 4: send initialized notification.
 	notifData, err := EncodeNotification(MethodInitialized, nil)
 	if err != nil {
 		return fmt.Errorf("codex: marshal initialized notification: %w", err)
 	}
-	notifData = append(notifData, '\n')
 	if err := c.write(ctx, notifData); err != nil {
 		return fmt.Errorf("codex: send initialized notification: %w", err)
 	}
@@ -205,255 +113,6 @@ func (c *AppServerClient) Initialize(ctx context.Context) error {
 		return err
 	}
 	return nil
-}
-
-// ListLoadedThreads returns the set of thread IDs currently loaded in the
-// app-server. Each loaded thread is returned as a ThreadCandidate with
-// IsLoaded=true and details populated via readThread so that CWD-based
-// matching works correctly (thread/loaded/list only returns IDs).
-func (c *AppServerClient) ListLoadedThreads(ctx context.Context) ([]ThreadCandidate, error) {
-	c.flightMu.Lock()
-	defer c.flightMu.Unlock()
-
-	if !c.hs.IsReady() {
-		return nil, fmt.Errorf("codex: client not initialized")
-	}
-
-	ctx, cancel := context.WithTimeout(ctx, c.timeout)
-	defer cancel()
-
-	id, err := c.sendRequestRaw(ctx, "thread/loaded/list", nil)
-	if err != nil {
-		return nil, err
-	}
-
-	var resp struct {
-		Data []string `json:"data"`
-	}
-	if err := c.readResponseJSON(ctx, id, &resp); err != nil {
-		return nil, err
-	}
-
-	candidates := make([]ThreadCandidate, len(resp.Data))
-	for i, tid := range resp.Data {
-		candidates[i] = ThreadCandidate{
-			ID:       tid,
-			IsLoaded: true,
-			Status:   ThreadStatusIdle,
-		}
-		// Enrich with details (CWD, preview, status) so loaded-thread
-		// CWD matching works correctly for live session auto-select.
-		details, err := c.readThread(ctx, tid)
-		if err != nil {
-			if IsUnsupportedError(RPCErrorFromError(err)) {
-				continue
-			}
-			return nil, fmt.Errorf("codex: read loaded thread %q: %w", tid, err)
-		}
-		candidates[i].CWD = details.CWD
-		candidates[i].SessionKey = details.SessionKey
-		candidates[i].Preview = details.Preview
-		candidates[i].Status = details.Status
-		candidates[i].CreatedAt = details.CreatedAt
-		candidates[i].UpdatedAt = details.UpdatedAt
-	}
-	return candidates, nil
-}
-
-// readThread fetches the details for a single thread by its stable identifier.
-// It uses the thread/read JSON-RPC method. When the endpoint is not supported
-// by the server, it returns an error gracefully — callers should treat this
-// as a best-effort enrichment.
-//
-// NOTE: readThread does NOT acquire flightMu; the caller must already hold it.
-func (c *AppServerClient) readThread(ctx context.Context, threadID string) (ThreadCandidate, error) {
-	if !c.hs.IsReady() {
-		return ThreadCandidate{}, fmt.Errorf("codex: client not initialized")
-	}
-	if threadID == "" {
-		return ThreadCandidate{}, fmt.Errorf("codex: empty thread id")
-	}
-
-	ctx, cancel := context.WithTimeout(ctx, c.timeout)
-	defer cancel()
-
-	params := map[string]any{"threadId": threadID}
-	id, err := c.sendRequestRaw(ctx, "thread/read", params)
-	if err != nil {
-		return ThreadCandidate{}, err
-	}
-
-	// thread/read returns the thread nested under result.thread, not at the
-	// top level of the result object (per Codex app-server API contract).
-	var raw struct {
-		Thread struct {
-			ID        string `json:"id"`
-			SessionID string `json:"sessionId"`
-			CWD       string `json:"cwd"`
-			Preview   string `json:"preview"`
-			Status    any    `json:"status"`
-			CreatedAt int64  `json:"createdAt"`
-			UpdatedAt int64  `json:"updatedAt"`
-		} `json:"thread"`
-	}
-	if err := c.readResponseJSON(ctx, id, &raw); err != nil {
-		return ThreadCandidate{}, err
-	}
-
-	thr := raw.Thread
-	return ThreadCandidate{
-		ID:         thr.ID,
-		CWD:        thr.CWD,
-		SessionKey: thr.SessionID,
-		Preview:    thr.Preview,
-		IsLoaded:   true,
-		Status:     ThreadStatusFromWire(thr.Status),
-		CreatedAt:  unixMillisToTime(thr.CreatedAt),
-		UpdatedAt:  unixMillisToTime(thr.UpdatedAt),
-	}, nil
-}
-
-// ListStoredThreads implements StoredThreadLister. It returns a single page
-// of stored (not loaded) thread candidates from the app-server's thread/list
-// endpoint. When page is empty, the first page is returned.
-//
-// The returned ThreadPage includes a NextPage token for pagination.
-// This method is designed to be used with the SelectThread / collectStoredThreads
-// functions from this package.
-func (c *AppServerClient) ListStoredThreads(ctx context.Context, page PageToken) (ThreadPage, error) {
-	c.flightMu.Lock()
-	defer c.flightMu.Unlock()
-
-	if !c.hs.IsReady() {
-		return ThreadPage{}, fmt.Errorf("codex: client not initialized")
-	}
-
-	ctx, cancel := context.WithTimeout(ctx, c.timeout)
-	defer cancel()
-
-	params := map[string]any{}
-	if page != "" {
-		params["cursor"] = string(page)
-	}
-	// Limit stored thread results so we don't read forever.
-	params["limit"] = 50
-
-	id, err := c.sendRequestRaw(ctx, "thread/list", params)
-	if err != nil {
-		return ThreadPage{}, err
-	}
-
-	var raw struct {
-		Data []struct {
-			ID        string `json:"id"`
-			SessionID string `json:"sessionId"`
-			CWD       string `json:"cwd"`
-			Preview   string `json:"preview"`
-			Status    any    `json:"status"`
-			CreatedAt int64  `json:"createdAt"`
-			UpdatedAt int64  `json:"updatedAt"`
-		} `json:"data"`
-		NextCursor *string `json:"nextCursor"`
-	}
-	if err := c.readResponseJSON(ctx, id, &raw); err != nil {
-		return ThreadPage{}, err
-	}
-
-	items := make([]ThreadCandidate, 0, len(raw.Data))
-	for _, t := range raw.Data {
-		status := ThreadStatusFromWire(t.Status)
-		cwd := t.CWD
-		// The app-server includes cwd for threads started with one.
-		// When the field is absent we leave it empty; the selector will
-		// treat it as non-matching.
-		items = append(items, ThreadCandidate{
-			ID:         t.ID,
-			CWD:        cwd,
-			SessionKey: t.SessionID,
-			Preview:    t.Preview,
-			IsLoaded:   false,
-			Status:     status,
-		})
-	}
-
-	nextPage := PageToken("")
-	if raw.NextCursor != nil && *raw.NextCursor != "" {
-		nextPage = PageToken(*raw.NextCursor)
-	}
-
-	return ThreadPage{
-		Items:    items,
-		NextPage: nextPage,
-	}, nil
-}
-
-// ResumeThread reopens an existing thread by its stable identifier. After a
-// successful resume, subsequent turn/start calls append to this thread.
-// This method does not wait for the thread/started notification — the caller
-// can immediately proceed with turn/start.
-func (c *AppServerClient) ResumeThread(ctx context.Context, threadID string) error {
-	c.flightMu.Lock()
-	defer c.flightMu.Unlock()
-
-	if !c.hs.IsReady() {
-		return fmt.Errorf("codex: client not initialized")
-	}
-	if threadID == "" {
-		return fmt.Errorf("codex: empty thread id")
-	}
-
-	ctx, cancel := context.WithTimeout(ctx, c.timeout)
-	defer cancel()
-
-	params := map[string]any{
-		"threadId":     threadID,
-		"excludeTurns": true,
-	}
-	id, err := c.sendRequestRaw(ctx, "thread/resume", params)
-	if err != nil {
-		return fmt.Errorf("codex: resume thread %s: %w", threadID, err)
-	}
-
-	// Read the resume response. Discard any interleaved notifications.
-	if err := c.readResponse(ctx, id); err != nil {
-		return fmt.Errorf("codex: resume thread %s response: %w", threadID, err)
-	}
-	return nil
-}
-
-// StartThread creates a new Codex thread and returns its stable identifier.
-// The cwd parameter sets the thread's working directory. After a successful
-// start, the caller can use the returned threadID for turn/start.
-func (c *AppServerClient) StartThread(ctx context.Context, cwd string) (string, error) {
-	c.flightMu.Lock()
-	defer c.flightMu.Unlock()
-
-	if !c.hs.IsReady() {
-		return "", fmt.Errorf("codex: client not initialized")
-	}
-
-	ctx, cancel := context.WithTimeout(ctx, c.timeout)
-	defer cancel()
-
-	params := map[string]any{"cwd": cwd}
-	id, err := c.sendRequestRaw(ctx, "thread/start", params)
-	if err != nil {
-		return "", fmt.Errorf("codex: start thread: %w", err)
-	}
-
-	// Read the start response and extract the thread ID.
-	var raw struct {
-		Thread struct {
-			ID string `json:"id"`
-		} `json:"thread"`
-	}
-	if err := c.readResponseJSON(ctx, id, &raw); err != nil {
-		return "", fmt.Errorf("codex: start thread response: %w", err)
-	}
-	if raw.Thread.ID == "" {
-		return "", fmt.Errorf("codex: start thread response missing thread id")
-	}
-	return raw.Thread.ID, nil
 }
 
 // PublishMessage sends a user message to an existing thread via turn/start.
@@ -505,12 +164,8 @@ func (c *AppServerClient) PublishMessage(ctx context.Context, threadID, message 
 	return raw.Turn.ID, nil
 }
 
-// Close shuts down the transport. For stdio connections, it closes stdin to
-// signal EOF, then waits for the process to exit with a 5-second grace period.
-// For WebSocket connections, it closes the connection directly.
+// Close shuts down the WebSocket connection.
 func (c *AppServerClient) Close() error {
-	// Acquire flightMu first to ensure no in-flight round-trip races with
-	// transport teardown. The write mutex is also acquired for closed flag.
 	c.flightMu.Lock()
 	defer c.flightMu.Unlock()
 
@@ -522,14 +177,12 @@ func (c *AppServerClient) Close() error {
 	}
 	c.closed = true
 
-	// WebSocket connection: close directly.
 	if c.conn != nil {
 		err := c.conn.Close()
 		c.conn = nil
 		return err
 	}
-
-	return c.closeStdioLocked(5 * time.Second)
+	return nil
 }
 
 // ---------------------------------------------------------------------------
@@ -554,8 +207,6 @@ func (c *AppServerClient) sendRequestRaw(ctx context.Context, method string, par
 	if err != nil {
 		return nil, err
 	}
-	// Append newline for JSONL.
-	data = append(data, '\n')
 
 	if err := c.writeLocked(ctx, data); err != nil {
 		return nil, err
@@ -564,9 +215,9 @@ func (c *AppServerClient) sendRequestRaw(ctx context.Context, method string, par
 	return id, nil
 }
 
-// readResponse reads one JSON-RPC response matching id from the scanner.
-// Notifications are silently discarded. The response Message is stored in msg.
-// Returns the JSON-RPC error object when the server responds with an error.
+// readResponse reads one JSON-RPC response matching id from the transport.
+// Notifications are silently discarded. Returns the JSON-RPC error object
+// when the server responds with an error.
 func (c *AppServerClient) readResponse(ctx context.Context, expectedID json.RawMessage) error {
 	var msg Message
 	return c.doReadResponse(ctx, expectedID, &msg, func() error {
@@ -593,7 +244,6 @@ func (c *AppServerClient) readResponseJSON(ctx context.Context, expectedID json.
 // cancellation/timeout aborts can concurrently nil those fields.
 type readTransport struct {
 	conn       io.ReadWriteCloser
-	scanner    *bufio.Scanner
 	maxMsgSize int
 }
 
@@ -605,17 +255,14 @@ func (c *AppServerClient) snapshotReadTransportLocked() (readTransport, error) {
 	if c.conn != nil {
 		return readTransport{conn: c.conn, maxMsgSize: c.maxMsgSize}, nil
 	}
-	if c.scanner != nil {
-		return readTransport{scanner: c.scanner, maxMsgSize: c.maxMsgSize}, nil
-	}
 	return readTransport{}, fmt.Errorf("codex: no read target (closed?)")
 }
 
 // readMessage reads one complete JSON-RPC message from the transport.
-// For stdio (JSONL) this is one newline-delimited line.
-// For WebSocket connections this is one complete WebSocket text frame,
-// using websocket.Message.Receive which handles continuation frames and
-// message reassembly correctly (unlike raw Conn.Read which is frame-level).
+// For WebSocket connections, it uses websocket.Message.Receive which handles
+// continuation frames and message reassembly correctly (unlike raw Conn.Read
+// which is frame-level). For non-WebSocket connections (test pipes), it
+// performs a single read.
 // The returned slice is a copy and safe to reuse.
 func (c *AppServerClient) readMessage() ([]byte, error) {
 	c.mu.Lock()
@@ -628,51 +275,28 @@ func (c *AppServerClient) readMessage() ([]byte, error) {
 }
 
 func (t readTransport) readMessage() ([]byte, error) {
-	if t.conn != nil {
-		// WebSocket: use Message.Receive for safe complete-message assembly.
-		// Message.Receive reads until a complete FIN frame is received,
-		// handling continuation frames transparently.
-		if ws, ok := t.conn.(*websocket.Conn); ok {
-			var msgStr string
-			if err := websocket.Message.Receive(ws, &msgStr); err != nil {
-				return nil, fmt.Errorf("codex: receive websocket message: %w", err)
-			}
-			if len(msgStr) == 0 {
-				return nil, io.ErrUnexpectedEOF
-			}
-			return []byte(msgStr), nil
+	if ws, ok := t.conn.(*websocket.Conn); ok {
+		var msgStr string
+		if err := websocket.Message.Receive(ws, &msgStr); err != nil {
+			return nil, fmt.Errorf("codex: receive websocket message: %w", err)
 		}
-		// Fallback for non-websocket conn (should not happen).
-		buf := make([]byte, t.maxMsgSize)
-		n, err := t.conn.Read(buf)
-		if err != nil {
-			return nil, fmt.Errorf("codex: read from conn: %w", err)
-		}
-		if n == 0 {
+		if len(msgStr) == 0 {
 			return nil, io.ErrUnexpectedEOF
 		}
-		line := make([]byte, n)
-		copy(line, buf[:n])
-		return line, nil
+		return []byte(msgStr), nil
 	}
-
-	if t.scanner == nil {
-		return nil, fmt.Errorf("codex: no read target (closed?)")
+	// Fallback for non-websocket conn (test pipes).
+	buf := make([]byte, t.maxMsgSize)
+	n, err := t.conn.Read(buf)
+	if err != nil {
+		return nil, fmt.Errorf("codex: read from conn: %w", err)
 	}
-
-	// Stdio (JSONL): read one newline-delimited line.
-	if !t.scanner.Scan() {
-		err := t.scanner.Err()
-		if err == nil {
-			err = io.ErrUnexpectedEOF
-		}
-		return nil, err
+	if n == 0 {
+		return nil, io.ErrUnexpectedEOF
 	}
-	line := t.scanner.Bytes()
-	// scanner.Bytes() is valid only until next Scan(); copy it.
-	cp := make([]byte, len(line))
-	copy(cp, line)
-	return cp, nil
+	line := make([]byte, n)
+	copy(line, buf[:n])
+	return line, nil
 }
 
 // doReadResponse reads messages from the transport until it finds a response
@@ -705,7 +329,7 @@ func (c *AppServerClient) doReadResponse(ctx context.Context, expectedID json.Ra
 			}
 
 			if len(line) == 0 {
-				continue // skip empty messages
+				continue
 			}
 
 			var m Message
@@ -716,7 +340,7 @@ func (c *AppServerClient) doReadResponse(ctx context.Context, expectedID json.Ra
 
 			kind := ClassifyMessage(m)
 			if kind == MsgNotification {
-				continue // discard notifications
+				continue
 			}
 
 			// Must be a response.
@@ -755,7 +379,7 @@ func (c *AppServerClient) doReadResponse(ctx context.Context, expectedID json.Ra
 	}
 }
 
-// abortTransport closes the underlying transport after a read timeout or
+// abortTransport closes the underlying connection after a read timeout or
 // cancellation without taking flightMu. Public methods already hold flightMu
 // while waiting for responses, and the client must become terminal because the
 // response stream may be partially consumed.
@@ -765,7 +389,7 @@ func (c *AppServerClient) abortTransport() {
 	c.abortTransportLocked()
 }
 
-// abortTransportLocked closes the underlying transport and marks the client
+// abortTransportLocked closes the underlying connection and marks the client
 // terminal. c.mu must be held.
 func (c *AppServerClient) abortTransportLocked() {
 	if c.closed {
@@ -777,45 +401,9 @@ func (c *AppServerClient) abortTransportLocked() {
 		_ = c.conn.Close()
 		c.conn = nil
 	}
-	_ = c.closeStdioLocked(0)
 }
 
-// closeStdioLocked closes and reaps the stdio subprocess. c.mu must be held.
-// A zero grace kills the process immediately, which is used after read timeout
-// or cancellation because the stream state is no longer safe to reuse.
-func (c *AppServerClient) closeStdioLocked(grace time.Duration) error {
-	if c.stdin != nil {
-		_ = c.stdin.Close()
-		c.stdin = nil
-	}
-
-	if c.cmd == nil || c.cmd.Process == nil {
-		return nil
-	}
-
-	cmd := c.cmd
-	c.cmd = nil
-
-	done := make(chan error, 1)
-	go func() { done <- cmd.Wait() }()
-
-	if grace > 0 {
-		select {
-		case err := <-done:
-			return err
-		case <-time.After(grace):
-		}
-	}
-
-	_ = cmd.Process.Kill()
-	err := <-done
-	if grace > 0 {
-		return fmt.Errorf("codex: app-server killed after %s timeout", grace)
-	}
-	return err
-}
-
-// write writes data to the transport (stdio pipe or WebSocket conn) with
+// write writes data to the transport (WebSocket or test pipe) with
 // context support.
 func (c *AppServerClient) write(ctx context.Context, data []byte) error {
 	c.mu.Lock()
@@ -825,34 +413,23 @@ func (c *AppServerClient) write(ctx context.Context, data []byte) error {
 
 // writeLocked writes data to the transport assuming the mutex is already held.
 // For WebSocket connections it uses websocket.Message.Send which sends a
-// complete text frame (the WebSocket message-level API). For stdio it writes
-// directly to the stdin pipe (JSONL). If the write is canceled, the transport
-// is closed before returning because stream state is no longer safe to reuse.
+// complete text frame (the WebSocket message-level API). For test pipes it
+// writes directly. If the write is canceled, the transport is closed before
+// returning because stream state is no longer safe to reuse.
 func (c *AppServerClient) writeLocked(ctx context.Context, data []byte) error {
 	ch := make(chan error, 1)
 
-	switch {
-	case c.conn != nil:
-		conn := c.conn
-		if ws, ok := conn.(*websocket.Conn); ok {
-			go func() {
-				// Message.Send with string sends a complete text frame.
-				ch <- websocket.Message.Send(ws, string(data))
-			}()
-		} else {
-			go func() {
-				_, err := conn.Write(data)
-				ch <- err
-			}()
-		}
-	case c.stdin != nil:
-		stdin := c.stdin
+	conn := c.conn
+	if ws, ok := conn.(*websocket.Conn); ok {
 		go func() {
-			_, err := stdin.Write(data)
+			// Message.Send with string sends a complete text frame.
+			ch <- websocket.Message.Send(ws, string(data))
+		}()
+	} else {
+		go func() {
+			_, err := conn.Write(data)
 			ch <- err
 		}()
-	default:
-		return fmt.Errorf("codex: no write target (closed?)")
 	}
 
 	select {
@@ -864,36 +441,7 @@ func (c *AppServerClient) writeLocked(ctx context.Context, data []byte) error {
 	}
 }
 
-// readResult carries the outcome of a background scan.
+// readResult carries the outcome of a background read.
 type readResult struct {
 	err error
 }
-
-// unixMillisToTime converts a Unix timestamp in milliseconds to time.Time.
-func unixMillisToTime(ms int64) time.Time {
-	if ms <= 0 {
-		return time.Time{}
-	}
-	return time.UnixMilli(ms)
-}
-
-// ThreadStatusFromWire converts the app-server's wire-format status field
-// (which can be a string like "notLoaded" or an object like {"type":"idle"})
-// into a ThreadStatus constant.
-func ThreadStatusFromWire(status any) ThreadStatus {
-	if status == nil {
-		return ""
-	}
-	switch v := status.(type) {
-	case string:
-		return ThreadStatusFromString(v)
-	case map[string]any:
-		if t, ok := v["type"].(string); ok {
-			return ThreadStatusFromString(t)
-		}
-	}
-	return ""
-}
-
-// Ensure AppServerClient implements StoredThreadLister.
-var _ StoredThreadLister = (*AppServerClient)(nil)

@@ -14,7 +14,7 @@ import (
 const (
 	providerID       = "codex"
 	providerName     = "ero-plugin-codex"
-	codexInstallHint = "Codex review requires the codex CLI on $PATH (install via https://chatgpt.com/codex/install.sh, npm install -g @openai/codex, or brew install --cask codex)"
+	codexCallbackHint = "Codex callback target not configured: set ERO_CODEX_SOCKET_PATH and ERO_CODEX_THREAD_ID to target a specific Codex session"
 )
 
 type publishFunc func(ctx context.Context, cfg codexadapter.Config, cwd, formatted string) (*codexadapter.PublishResult, error)
@@ -24,7 +24,7 @@ type codexProvider struct {
 }
 
 func main() {
-	provider := codexProvider{publish: codexadapter.PublishReview}
+	provider := codexProvider{publish: publishCallback}
 	if err := plugin.ServeReviewProvider(context.Background(), provider, os.Stdin, os.Stdout); err != nil {
 		fmt.Fprintln(os.Stderr, err)
 		os.Exit(1)
@@ -61,10 +61,33 @@ func (p codexProvider) Initialize(_ context.Context, req plugin.InitializeReques
 
 func (p codexProvider) DetectContext(_ context.Context, _ plugin.DetectContextRequest) (plugin.DetectContextResult, error) {
 	cfg := codexadapter.ConfigFromEnv()
-	if cfg.CodexAvailable() {
-		return plugin.DetectContextResult{Result: plugin.DetectionResult{Applicable: true, Reason: "Codex CLI found on PATH"}}, nil
+
+	// Require explicit callback target configuration.
+	if err := cfg.ValidateCallbackTarget(); err != nil {
+		return plugin.DetectContextResult{
+			Result: plugin.DetectionResult{
+				Applicable: false,
+				Reason:     codexCallbackHint,
+			},
+		}, nil
 	}
-	return plugin.DetectContextResult{Result: plugin.DetectionResult{Applicable: false, Reason: codexInstallHint}}, nil
+
+	// Lightweight socket existence check.
+	if !codexadapter.SocketExists(cfg.SocketPath) {
+		return plugin.DetectContextResult{
+			Result: plugin.DetectionResult{
+				Applicable: false,
+				Reason:     fmt.Sprintf("Codex socket %s not found or not a socket", cfg.SocketPath),
+			},
+		}, nil
+	}
+
+	return plugin.DetectContextResult{
+		Result: plugin.DetectionResult{
+			Applicable: true,
+			Reason:     fmt.Sprintf("Codex callback target configured: socket=%s thread=%s", cfg.SocketPath, cfg.ThreadID),
+		},
+	}, nil
 }
 
 func (p codexProvider) LoadRemoteThreads(_ context.Context, _ plugin.LoadRemoteThreadsRequest) (plugin.LoadRemoteThreadsResult, error) {
@@ -73,10 +96,6 @@ func (p codexProvider) LoadRemoteThreads(_ context.Context, _ plugin.LoadRemoteT
 
 func (p codexProvider) PublishReview(parentCtx context.Context, params plugin.PublishReviewParams) (plugin.PublishReviewResultData, error) {
 	payload := params.Payload
-	cwd := payload.Context.Repository.WorktreeRoot
-	if cwd == "" {
-		cwd = payload.Context.Repository.RepoPath
-	}
 
 	msg := codexadapter.BuildPublishMessage(
 		payload.Draft.Summary,
@@ -93,11 +112,11 @@ func (p codexProvider) PublishReview(parentCtx context.Context, params plugin.Pu
 
 	publish := p.publish
 	if publish == nil {
-		publish = codexadapter.PublishReview
+		publish = publishCallback
 	}
-	result, err := publish(publishCtx, cfg, cwd, codexadapter.FormatPublishMessage(msg))
+	result, err := publish(publishCtx, cfg, payload.Context.Repository.WorktreeRoot, codexadapter.FormatPublishMessage(msg))
 	if err != nil {
-		return plugin.PublishReviewResultData{}, classifyCodexPublishError(result, err)
+		return plugin.PublishReviewResultData{}, classifyCallbackPublishError(result, err)
 	}
 
 	refs := make([]plugin.PublishedReviewCommentRef, 0, len(payload.Draft.Comments))
@@ -116,7 +135,14 @@ func (p codexProvider) PublishReview(parentCtx context.Context, params plugin.Pu
 	}}, nil
 }
 
-func classifyCodexPublishError(result *codexadapter.PublishResult, err error) error {
+// publishCallback delegates to SendCallback for the callback-only publish
+// workflow. The old PublishReview orchestration (CWD matching, thread
+// selection, stored-thread pagination, create-new fallback) is removed.
+func publishCallback(ctx context.Context, cfg codexadapter.Config, _ string, formatted string) (*codexadapter.PublishResult, error) {
+	return codexadapter.SendCallback(ctx, cfg, formatted)
+}
+
+func classifyCallbackPublishError(result *codexadapter.PublishResult, err error) error {
 	if err == nil {
 		return nil
 	}
@@ -125,24 +151,22 @@ func classifyCodexPublishError(result *codexadapter.PublishResult, err error) er
 	}
 	message := strings.TrimSpace(err.Error())
 	if message == "" {
-		message = "codex review publish failed"
+		message = "codex callback publish failed"
 	}
 	if publishErr, ok := errors.AsType[*codexadapter.PublishReviewError](err); ok {
 		switch publishErr.Reason {
-		case codexadapter.PublishErrorOverride, codexadapter.PublishErrorAmbiguous:
-			return plugin.NewError(plugin.ErrorNotApplicable, message)
-		case codexadapter.PublishErrorUnsupported:
-			return plugin.NewError(plugin.ErrorRemoteValidationFailed, message)
 		case codexadapter.PublishErrorPublish:
 			if result != nil && result.ThreadID != "" {
 				return plugin.NewError(plugin.ErrorPartialPublishUnknown, message)
 			}
+		case codexadapter.PublishErrorUnsupported:
+			return plugin.NewError(plugin.ErrorRemoteValidationFailed, message)
 		}
 	}
-	return plugin.NewError(classifyCodexErrorCode(message), message)
+	return plugin.NewError(classifyCallbackErrorCode(message), message)
 }
 
-func classifyCodexErrorCode(message string) string {
+func classifyCallbackErrorCode(message string) string {
 	lower := strings.ToLower(strings.TrimSpace(message))
 	switch {
 	case lower == "":
@@ -151,8 +175,6 @@ func classifyCodexErrorCode(message string) string {
 		return plugin.ErrorRemoteRateLimited
 	case strings.Contains(lower, "auth") || strings.Contains(lower, "login") || strings.Contains(lower, "credential") || strings.Contains(lower, "api key") || strings.Contains(lower, "401") || strings.Contains(lower, "403"):
 		return plugin.ErrorAuthRequired
-	case strings.Contains(lower, "executable file not found") || strings.Contains(lower, "command not found") || strings.Contains(lower, "not installed") || strings.Contains(lower, "no such file or directory"):
-		return plugin.ErrorNotApplicable
 	case strings.Contains(lower, "dial ") || strings.Contains(lower, "connect ") || strings.Contains(lower, "socket") || strings.Contains(lower, "websocket") || strings.Contains(lower, "broken pipe") || strings.Contains(lower, "connection refused") || strings.Contains(lower, "deadline exceeded") || strings.Contains(lower, "timeout") || strings.Contains(lower, " eof") || strings.HasSuffix(lower, "eof"):
 		return plugin.ErrorNetwork
 	case strings.Contains(lower, "invalid") || strings.Contains(lower, "decode") || strings.Contains(lower, "marshal") || strings.Contains(lower, "protocol") || strings.Contains(lower, "unexpected"):

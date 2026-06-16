@@ -1,11 +1,10 @@
 package codex
 
 import (
-	"bufio"
 	"context"
 	"fmt"
-	"io"
 	"net"
+	"os"
 	"sync"
 	"time"
 
@@ -25,9 +24,9 @@ const maxLiveMsgSize = 2 * 1024 * 1024
 // connection deadline is cleared; subsequent reads/writes use per-method
 // timeouts set by the caller.
 //
-// Callers should check cfg.EffectiveSocketPath() for the resolved path.
-// The socket path is resolved from cfg.EffectiveSocketPath(); CODEX_HOME
-// is only used for path resolution (not passed through the WebSocket).
+// Callers should check cfg.EffectiveSocketPath() for the socket path.
+// The socket path is taken directly from cfg.SocketPath (via
+// EffectiveSocketPath).
 func DialLiveSession(ctx context.Context, cfg Config) (*AppServerClient, error) {
 	socketPath := cfg.EffectiveSocketPath()
 	if socketPath == "" {
@@ -107,15 +106,22 @@ func DialLiveSession(ctx context.Context, cfg Config) (*AppServerClient, error) 
 	ws.PayloadType = websocket.TextFrame
 	ws.MaxPayloadBytes = maxLiveMsgSize
 
-	// Build a dummy scanner that will never be used (keeps Close logic simple).
-	dummyScanner := bufio.NewScanner(io.LimitReader(nil, 0))
-
 	return &AppServerClient{
 		cfg:        cfg,
 		conn:       ws,
-		scanner:    dummyScanner,
 		hs:         Handshake{},
 		timeout:    timeout,
 		maxMsgSize: maxLiveMsgSize,
 	}, nil
+}
+
+// SocketExists checks whether the given path exists as a Unix socket.
+// It is a lightweight OS-level check used by the provider's DetectContext
+// for fast failure before attempting a full dial to the Codex app-server.
+func SocketExists(path string) bool {
+	info, err := os.Stat(path)
+	if err != nil {
+		return false
+	}
+	return info.Mode()&os.ModeSocket != 0
 }

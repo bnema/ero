@@ -46,15 +46,21 @@ func TestBundledPluginsDiscoveredGenericallyFromManifestRootsViaEnvOverride(t *t
 	require.Equal(t, "second", descriptors[1].Contributions[0].ID)
 }
 
-func TestBundledPluginsDefaultDiscoveryIncludesOnlyCodex(t *testing.T) {
+func TestBundledPluginsDefaultDiscoveryIncludesMaintainedShippedPlugins(t *testing.T) {
 	t.Setenv("ERO_BUNDLED_PLUGIN_DIRS", "")
 
 	descriptors := bundledPlugins()
-	require.Len(t, descriptors, 1)
-	require.Equal(t, bundledCodexSource, descriptors[0].Source)
-	require.Equal(t, bundledCodexName, descriptors[0].Name)
-	require.True(t, descriptors[0].Bundled)
-	require.NotEmpty(t, descriptors[0].Path)
+	require.Len(t, descriptors, 3)
+	byName := map[string]bool{}
+	for _, descriptor := range descriptors {
+		byName[descriptor.Name] = true
+		require.True(t, descriptor.Bundled)
+		require.NotEmpty(t, descriptor.Path)
+		require.Equal(t, bundledSource(descriptor.Name), descriptor.Source)
+	}
+	require.True(t, byName["ero-plugin-codex"])
+	require.True(t, byName["ero-plugin-github"])
+	require.True(t, byName["ero-plugin-pi-coding-agent"])
 }
 
 func TestBundledCodexManifestUsesPackagedRuntimeLayoutAndLocalBuildCommand(t *testing.T) {
