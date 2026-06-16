@@ -17,17 +17,18 @@ var (
 	warnStyle  = lipgloss.NewStyle().Foreground(lipgloss.Color("214")).Bold(true)
 )
 
-// PluginList renders installed plugins for human CLI output.
+// PluginList renders available plugins for human CLI output.
 func PluginList(plugins []ports.InstalledPlugin, width int) string {
 	if len(plugins) == 0 {
-		return mutedStyle.Render("No plugins installed.")
+		return mutedStyle.Render("No plugins available.")
 	}
 
 	var b strings.Builder
-	b.WriteString(titleStyle.Render("Installed plugins"))
+	b.WriteString(titleStyle.Render("Available plugins"))
 	for _, plugin := range plugins {
 		b.WriteString("\n\n")
-		b.WriteString(badgeStyle.Render(truncateRunes(plugin.Name+" v"+plugin.Version, max(width, 20))))
+		label := plugin.Name + " v" + plugin.Version
+		b.WriteString(badgeStyle.Render(truncateRunes(label, max(width, 20))))
 		if len(plugin.Contributions) > 0 {
 			b.WriteString("\n")
 			b.WriteString("  ")
@@ -35,15 +36,29 @@ func PluginList(plugins []ports.InstalledPlugin, width int) string {
 			b.WriteString("  ")
 			b.WriteString(truncateRunes(strings.Join(plugin.Contributions, ", "), max(width-12, 10)))
 		}
-		if plugin.Source != "" {
+		if source := pluginListSource(plugin); source != "" {
 			b.WriteString("\n")
 			b.WriteString("  ")
 			b.WriteString(mutedStyle.Render("source"))
 			b.WriteString("    ")
-			b.WriteString(mutedStyle.Render(truncateRunes(plugin.Source, max(width-12, 10))))
+			b.WriteString(mutedStyle.Render(truncateRunes(source, max(width-12, 10))))
+		}
+		if plugin.Bundled {
+			b.WriteString("\n")
+			b.WriteString("  ")
+			b.WriteString(mutedStyle.Render("managed"))
+			b.WriteString("   ")
+			b.WriteString(mutedStyle.Render("shipped"))
 		}
 	}
 	return b.String()
+}
+
+func pluginListSource(plugin ports.InstalledPlugin) string {
+	if plugin.Bundled && plugin.Path != "" {
+		return plugin.Path
+	}
+	return plugin.Source
 }
 
 // PluginInstall renders a successful plugin install.

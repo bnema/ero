@@ -105,6 +105,7 @@ func newAppWithClipboard(cfg *viper.Viper, loader reviewLoader, runner tuiRunner
 		pluginManager := pluginadapter.NewManager()
 		providerLoader := pluginadapter.NewReviewProviderLoader(pluginManager)
 		providerStore := providercache.NewXDGStore()
+
 		activeProviderService := NewActiveProviderService(providerLoader, providerLoader, providerStore, providerStore, providerPollingConfigFromConfig(cfg))
 		activeProvider := &tuiActiveProviderController{catalog: providerLoader, service: activeProviderService}
 		var metadata ports.GitMetadataReader
@@ -114,8 +115,7 @@ func newAppWithClipboard(cfg *viper.Viper, loader reviewLoader, runner tuiRunner
 			metadata = reader
 		}
 		reviewContext := buildReviewContext(initialRequest, files, metadata, version)
-		var compatibilityProviders []ports.ReviewProviderClient
-		err = runner.Run(tui.NewModelWithActiveProviderContext(ctx, files, terminal.NewCapabilities(), loader, initialRequest, clipboardWriter, reviewContext, activeProvider, compatibilityProviders))
+		err = runner.Run(tui.NewModelWithActiveProviderContext(ctx, files, terminal.NewCapabilities(), loader, initialRequest, clipboardWriter, reviewContext, activeProvider, nil))
 		if err != nil {
 			log.Error().Err(err).Msg("tui exited with error")
 			return err

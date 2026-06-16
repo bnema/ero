@@ -18,11 +18,15 @@ A terminal UI for reviewing Git diffs file by file.
 
 ## Install
 
-Download a binary from the GitHub releases page, or build from source:
+For the full bundled-Codex experience, use a packaged release from the GitHub releases page.
+
+For source-checkout development, you can install the CLI with:
 
 ```bash
 go install ./cmd/ero
 ```
+
+`go install ./cmd/ero` installs only the `ero` binary. Bundled Codex assets are included in packaged release layouts, and source checkouts expose `plugins/codex` when you run Ero from inside the repository tree. A standalone `go install` or `go build` binary copied elsewhere does not carry bundled plugin assets by itself.
 
 ## Usage
 
@@ -46,7 +50,7 @@ ero --context-lines 5
 
 ## Plugins
 
-Ero supports a general local subprocess plugin system, managed with `ero plugin install`, `ero plugin list`, `ero plugin update`, and `ero plugin remove`. The first shipped contribution type is `review_provider`, used by the maintained GitHub and pi-coding-agent plugins.
+Ero supports a general local subprocess plugin system, managed with `ero plugin install`, `ero plugin list`, `ero plugin update`, and `ero plugin remove`. Codex ships as a bundled/default plugin in packaged releases and source checkouts run from inside the repo tree: it is available without installation, appears in provider discovery and `ero plugin list`, runs through the normal plugin/provider path, and is not removable or updateable like user-installed plugins. A plain `go install ./cmd/ero` binary does not include bundled plugin assets unless you also package `plugins/codex` beside it. The first public contribution type is `review_provider`, used by Codex and by the maintained GitHub and pi-coding-agent plugins.
 
 Ero discovers all provider contributions but activates one review provider at a time. The TUI supports provider switching, manual refresh, cache-first sync, and provider sync status. The GitHub plugin uses GitHub CLI-compatible authentication through `go-gh` and requires `gh auth login`. See [docs/plugins.md](docs/plugins.md) for authoring details.
 

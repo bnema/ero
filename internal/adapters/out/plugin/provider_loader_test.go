@@ -69,6 +69,39 @@ func TestReviewProviderLoaderListsReviewProviderDescriptorsWithoutStartingClient
 	require.Zero(t, clientFactoryCalls)
 }
 
+func TestReviewProviderLoaderListsBundledCodexWithCanonicalProviderKey(t *testing.T) {
+	bundled := bundledPlugins()
+	var codex ports.PluginDescriptor
+	for _, descriptor := range bundled {
+		if descriptor.Source == "bundled:ero-plugin-codex" {
+			codex = descriptor
+			break
+		}
+	}
+	require.NotEmpty(t, codex.Name)
+	registry := mocks.NewMockPluginRegistry(t)
+	registry.EXPECT().InstalledPlugins(context.Background()).Return([]ports.PluginDescriptor{codex}, nil)
+
+	descriptors, err := NewReviewProviderLoader(registry).ListReviewProviderDescriptors(context.Background())
+	require.NoError(t, err)
+	require.Len(t, descriptors, 1)
+	require.Equal(t, stableReviewProviderKey(codex, codex.Contributions[0]), descriptors[0].Key)
+	require.Equal(t, "bundled:ero-plugin-codex", descriptors[0].PluginSource)
+	require.NotEqual(t, "builtin:codex", descriptors[0].Key)
+	require.Equal(t, "codex", descriptors[0].ContributionID)
+	require.NotEmpty(t, descriptors[0].PluginPath)
+}
+
+func TestStableReviewProviderKeyForBundledPluginIsPathIndependent(t *testing.T) {
+	t.Parallel()
+
+	contribution := ports.PluginContribution{Type: "review_provider", ID: "codex", Label: "Codex"}
+	first := ports.PluginDescriptor{Name: "ero-plugin-codex", Version: "0.1.0", Source: "bundled:ero-plugin-codex", Path: "/opt/ero/plugins/codex", Bundled: true}
+	second := ports.PluginDescriptor{Name: "ero-plugin-codex", Version: "0.1.0", Source: "bundled:ero-plugin-codex", Path: "/tmp/ero/plugins/codex", Bundled: true}
+
+	require.Equal(t, stableReviewProviderKey(first, contribution), stableReviewProviderKey(second, contribution))
+}
+
 func TestStableReviewProviderKeyUsesCanonicalInstalledPluginIdentity(t *testing.T) {
 	t.Parallel()
 
@@ -82,6 +115,33 @@ func TestStableReviewProviderKeyUsesCanonicalInstalledPluginIdentity(t *testing.
 	require.NotEqual(t, firstKey, secondKey)
 	require.NotContains(t, firstKey, "same@1.0.0")
 	require.Contains(t, firstKey, "#review_provider:github")
+}
+
+func TestReviewProviderLoaderDoesNotTreatBundledReleaseRuntimeAsLocallyBuildable(t *testing.T) {
+	t.Parallel()
+
+	dir := t.TempDir()
+	require.NoError(t, os.MkdirAll(filepath.Join(dir, "bin"), 0o755))
+	require.NoError(t, os.WriteFile(filepath.Join(dir, "bin", "ero-plugin-codex"), []byte("#!/bin/sh\ncat\n"), 0o755))
+	require.NoError(t, os.WriteFile(filepath.Join(dir, "ero-plugin.toml"), []byte(`name = "ero-plugin-codex"
+version = "0.1.0"
+manifest_version = "1"
+protocol = "ero.plugin.v1"
+
+[runtime]
+command = "./bin/ero-plugin-codex"
+
+[build]
+command = "go build -o ./bin/ero-plugin-codex ./cmd/ero-plugin-codex"
+
+[[contributions]]
+type = "review_provider"
+id = "codex"
+label = "Codex"
+`), 0o644))
+
+	require.False(t, pluginCanBuildLocally(dir, "go build -o ./bin/ero-plugin-codex ./cmd/ero-plugin-codex"))
+	require.False(t, shouldBuildRuntime("./bin/ero-plugin-codex", dir, "go build -o ./bin/ero-plugin-codex ./cmd/ero-plugin-codex"))
 }
 
 func TestReviewProviderLoaderBuildsMissingRuntimeBeforeStartingProvider(t *testing.T) {
@@ -118,7 +178,7 @@ label = "pi-coding-agent"
 		},
 	}}, nil)
 
-	providers, err := NewReviewProviderLoader(registry).LoadReviewProviders(context.Background())
+	providers, err := NewReviewProviderLoader(registry).CreateReviewProviderClients(context.Background())
 	require.NoError(t, err)
 	require.Len(t, providers, 1)
 	require.FileExists(t, filepath.Join(dir, "runtime-plugin"))
@@ -167,7 +227,7 @@ label = "GitHub"
 		},
 	}}, nil)
 
-	providers, err := NewReviewProviderLoader(registry).LoadReviewProviders(context.Background())
+	providers, err := NewReviewProviderLoader(registry).CreateReviewProviderClients(context.Background())
 	require.NoError(t, err)
 	require.Len(t, providers, 1)
 	require.FileExists(t, buildMarker)
@@ -209,7 +269,7 @@ label = "GitLab"
 		},
 	}}, nil)
 
-	providers, err := NewReviewProviderLoader(registry).LoadReviewProviders(context.Background())
+	providers, err := NewReviewProviderLoader(registry).CreateReviewProviderClients(context.Background())
 	require.NoError(t, err)
 	require.Len(t, providers, 2)
 	for _, provider := range providers {

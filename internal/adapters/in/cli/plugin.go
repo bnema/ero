@@ -27,7 +27,17 @@ func NewPluginCommand(manager PluginManager, out io.Writer) *cobra.Command {
 Plugins can be installed from Git URLs or local Git repositories. The plugin
 system stores metadata in your Ero config directory and manages plugin data
 under the Ero data directory. Local plugins are tracked by reference; their
-repositories are never deleted by Ero.`,
+repositories are never deleted by Ero.
+
+Ero ships maintained providers under plugins/ in packaged releases and source
+checkouts. Shipped plugins are available without installation, appear in
+provider discovery and plugin list, run through the normal plugin/provider
+path, and cannot be installed, removed, or updated through plugin lifecycle
+commands. go install ./cmd/ero installs only the ero binary; shipped plugin
+assets come from packaged release layouts or from plugins/ when you run inside
+a source checkout. The lifecycle commands reject shipped provider identifiers
+such as codex, github, pi-coding-agent, and bundled:ero-plugin-codex unless one
+of those names resolves to a real user-installed or local-path plugin.`,
 	}
 
 	var jsonOutput bool
@@ -44,7 +54,7 @@ repositories are never deleted by Ero.`,
 func newPluginListCommand(manager PluginManager, out io.Writer, jsonOutput *bool) *cobra.Command {
 	return &cobra.Command{
 		Use:   "list",
-		Short: "List installed plugins",
+		Short: "List available plugins",
 		Args:  cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			ctx := cmd.Context()
@@ -97,12 +107,12 @@ func newPluginInstallCommand(manager PluginManager, out io.Writer, jsonOutput *b
 func newPluginUpdateCommand(manager PluginManager, out io.Writer, jsonOutput *bool) *cobra.Command {
 	return &cobra.Command{
 		Use:   "update [source]",
-		Short: "Update installed plugins to their latest version",
-		Long: `Update plugins to the latest version from their source.
+		Short: "Update user-installed plugins to their latest version",
+		Long: `Update user-installed plugins to the latest version from their source.
 
 When a source is specified, only that plugin is updated. When no source is
-given, all installed plugins are updated. Pinned plugins and local sources
-are reported as skipped.`,
+given, all user-installed plugins are updated. Pinned plugins, local sources,
+and bundled/default plugins are reported as skipped.`,
 		Args: cobra.MaximumNArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			ctx := cmd.Context()
@@ -134,7 +144,7 @@ are reported as skipped.`,
 func newPluginRemoveCommand(manager PluginManager, out io.Writer, jsonOutput *bool) *cobra.Command {
 	return &cobra.Command{
 		Use:   "remove <name|source>",
-		Short: "Remove an installed plugin",
+		Short: "Remove a user-installed plugin",
 		Args:  cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			ctx := cmd.Context()
@@ -171,7 +181,7 @@ func commandOut(cmd *cobra.Command, configured io.Writer) io.Writer {
 	return cmd.OutOrStdout()
 }
 
-// renderPluginList writes a human-readable table of installed plugins.
+// renderPluginList writes a human-readable table of available plugins.
 func renderPluginList(out io.Writer, plugins []ports.InstalledPlugin) error {
 	_, err := fmt.Fprintln(out, render.PluginList(plugins, 100))
 	return err

@@ -3,5 +3,6 @@ coverage.out
 *.test
 .DS_Store
 .local/
+/plugins/*/bin/
 /plugins/github/ero-plugin-github
 /plugins/pi-coding-agent/ero-plugin-pi-coding-agent
