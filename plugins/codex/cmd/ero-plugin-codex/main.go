@@ -12,12 +12,12 @@ import (
 )
 
 const (
-	providerID       = "codex"
-	providerName     = "ero-plugin-codex"
+	providerID        = "codex"
+	providerName      = "ero-plugin-codex"
 	codexCallbackHint = "Codex callback target not configured: set ERO_CODEX_SOCKET_PATH and ERO_CODEX_THREAD_ID to target a specific Codex session"
 )
 
-type publishFunc func(ctx context.Context, cfg codexadapter.Config, cwd, formatted string) (*codexadapter.PublishResult, error)
+type publishFunc func(ctx context.Context, cfg codexadapter.Config, formatted string) (*codexadapter.PublishResult, error)
 
 type codexProvider struct {
 	publish publishFunc
@@ -114,7 +114,7 @@ func (p codexProvider) PublishReview(parentCtx context.Context, params plugin.Pu
 	if publish == nil {
 		publish = publishCallback
 	}
-	result, err := publish(publishCtx, cfg, payload.Context.Repository.WorktreeRoot, codexadapter.FormatPublishMessage(msg))
+	result, err := publish(publishCtx, cfg, codexadapter.FormatPublishMessage(msg))
 	if err != nil {
 		return plugin.PublishReviewResultData{}, classifyCallbackPublishError(result, err)
 	}
@@ -135,10 +135,7 @@ func (p codexProvider) PublishReview(parentCtx context.Context, params plugin.Pu
 	}}, nil
 }
 
-// publishCallback delegates to SendCallback for the callback-only publish
-// workflow. The old PublishReview orchestration (CWD matching, thread
-// selection, stored-thread pagination, create-new fallback) is removed.
-func publishCallback(ctx context.Context, cfg codexadapter.Config, _ string, formatted string) (*codexadapter.PublishResult, error) {
+func publishCallback(ctx context.Context, cfg codexadapter.Config, formatted string) (*codexadapter.PublishResult, error) {
 	return codexadapter.SendCallback(ctx, cfg, formatted)
 }
 

@@ -3,6 +3,8 @@ package main
 import (
 	"context"
 	"errors"
+	"net"
+	"path/filepath"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -64,19 +66,25 @@ func TestDetectContext_Unavailable_SocketNotReachable(t *testing.T) {
 }
 
 func TestDetectContext_Applicable_WhenSocketReachable(t *testing.T) {
-	// We cannot easily create a real unix socket in a portable test, so
-	// this test verifies that when both required env vars are set and the
-	// socket path is reachable the result is Applicable. The socket
-	// reachability path is tested by TestDetectContext_Unavailable_SocketNotReachable.
-	//
-	// A realistic end-to-end validation requires an integration test with
-	// a running Codex app-server.
-	t.Skip("requires a running Codex app-server control socket")
+	socketPath := filepath.Join(t.TempDir(), "codex.sock")
+	listener, err := net.Listen("unix", socketPath)
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = listener.Close() })
+	t.Setenv(codexadapter.EnvCodexSocketPath, socketPath)
+	t.Setenv(codexadapter.EnvCodexThreadID, "thr_test")
+
+	provider := codexProvider{}
+	result, err := provider.DetectContext(context.Background(), plugin.DetectContextRequest{})
+
+	require.NoError(t, err)
+	assert.True(t, result.Result.Applicable)
+	assert.Contains(t, result.Result.Reason, socketPath)
+	assert.Contains(t, result.Result.Reason, "thr_test")
 }
 
 func TestPublishReview_EmptyDraft_DoesNotCallPublish(t *testing.T) {
 	called := false
-	provider := codexProvider{publish: func(context.Context, codexadapter.Config, string, string) (*codexadapter.PublishResult, error) {
+	provider := codexProvider{publish: func(context.Context, codexadapter.Config, string) (*codexadapter.PublishResult, error) {
 		called = true
 		return nil, nil
 	}}
@@ -90,8 +98,7 @@ func TestPublishReview_EmptyDraft_DoesNotCallPublish(t *testing.T) {
 }
 
 func TestPublishReview_Success_MapsCodexRefs(t *testing.T) {
-	provider := codexProvider{publish: func(_ context.Context, _ codexadapter.Config, cwd, formatted string) (*codexadapter.PublishResult, error) {
-		assert.Equal(t, "/repo", cwd)
+	provider := codexProvider{publish: func(_ context.Context, _ codexadapter.Config, formatted string) (*codexadapter.PublishResult, error) {
 		assert.Contains(t, formatted, "Review")
 		assert.Contains(t, formatted, "hello")
 		return &codexadapter.PublishResult{ThreadID: "thr_live_1", TurnID: "turn_42"}, nil
@@ -115,7 +122,7 @@ func TestPublishReview_Success_MapsCodexRefs(t *testing.T) {
 }
 
 func TestPublishReview_ClassifiesPartialPublishAsUnknown(t *testing.T) {
-	provider := codexProvider{publish: func(context.Context, codexadapter.Config, string, string) (*codexadapter.PublishResult, error) {
+	provider := codexProvider{publish: func(context.Context, codexadapter.Config, string) (*codexadapter.PublishResult, error) {
 		return &codexadapter.PublishResult{ThreadID: "thr_live_1"}, &codexadapter.PublishReviewError{Reason: codexadapter.PublishErrorPublish, Message: "codex: publish review to thread thr_live_1 failed: EOF", Cause: errors.New("EOF")}
 	}}
 

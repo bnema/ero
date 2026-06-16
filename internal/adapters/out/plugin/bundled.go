@@ -193,6 +193,16 @@ func bundledDescriptorForInput(input string) (ports.PluginDescriptor, bool) {
 	return ports.PluginDescriptor{}, false
 }
 
+func bundledDescriptorForPath(path string) (ports.PluginDescriptor, bool) {
+	pathKey := cleanPathKey(path)
+	for _, descriptor := range bundledPlugins() {
+		if descriptor.Path != "" && cleanPathKey(descriptor.Path) == pathKey {
+			return descriptor, true
+		}
+	}
+	return ports.PluginDescriptor{}, false
+}
+
 func bundledDescriptorMatchesInput(descriptor ports.PluginDescriptor, input string) bool {
 	candidates := []string{descriptor.Source, descriptor.Name}
 	for _, contribution := range descriptor.Contributions {

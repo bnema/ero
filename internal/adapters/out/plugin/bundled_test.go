@@ -63,9 +63,20 @@ func TestBundledPluginsDefaultDiscoveryIncludesMaintainedShippedPlugins(t *testi
 	require.True(t, byName["ero-plugin-pi-coding-agent"])
 }
 
-func TestBundledCodexManifestUsesPackagedRuntimeLayoutAndLocalBuildCommand(t *testing.T) {
-	manifest, err := LoadManifest(filepath.Join("..", "..", "..", "..", "plugins", "codex"))
-	require.NoError(t, err)
-	require.Equal(t, "./bin/ero-plugin-codex", manifest.Runtime.Command)
-	require.Equal(t, "go build -o ./bin/ero-plugin-codex ./cmd/ero-plugin-codex", manifest.Build.Command)
+func TestBundledPluginManifestsUsePackagedRuntimeLayoutAndLocalBuildCommand(t *testing.T) {
+	for _, tt := range []struct {
+		dir  string
+		name string
+	}{
+		{dir: "codex", name: "ero-plugin-codex"},
+		{dir: "github", name: "ero-plugin-github"},
+		{dir: "pi-coding-agent", name: "ero-plugin-pi-coding-agent"},
+	} {
+		t.Run(tt.dir, func(t *testing.T) {
+			manifest, err := LoadManifest(filepath.Join("..", "..", "..", "..", "plugins", tt.dir))
+			require.NoError(t, err)
+			require.Equal(t, "./bin/"+tt.name, manifest.Runtime.Command)
+			require.Equal(t, "go build -o ./bin/"+tt.name+" ./cmd/"+tt.name, manifest.Build.Command)
+		})
+	}
 }

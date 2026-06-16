@@ -59,6 +59,9 @@ func (m *Manager) Install(ctx context.Context, rawSource string) (ports.PluginIn
 		return ports.PluginInstallResult{}, bundledLifecycleError("installed", rawSource)
 	}
 	if source, err := ParseLocalSource(rawSource); err == nil {
+		if descriptor, shipped := bundledDescriptorForPath(source.LocalPath); shipped {
+			return ports.PluginInstallResult{}, bundledLifecycleError("installed", descriptor.Source)
+		}
 		return m.installLocal(source)
 	}
 	if descriptor, ok := bundledDescriptorForInput(rawSource); ok {

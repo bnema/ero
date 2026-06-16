@@ -112,11 +112,11 @@ Shipped plugins use this split explicitly:
   those plugin assets; use the packaged layout when you want shipped providers
   outside the repo tree.
 
-For Codex, `runtime.command = "./bin/ero-plugin-codex"` is the packaged runtime
-layout. Its `build.command` lets source checkouts rebuild the same runtime path
-when local plugin source is present.
-- Packaged releases ship the ready-to-run binary at that path and do not rely on
-  source files being present at runtime.
+For shipped plugins, `runtime.command = "./bin/<plugin-binary>"` is the packaged
+runtime layout. Each `build.command` lets source checkouts rebuild the same
+runtime path when local plugin source is present. Packaged releases ship the
+ready-to-run binaries at those paths and do not rely on source files being
+present at runtime.
 
 ## Protocol
 

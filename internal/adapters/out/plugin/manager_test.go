@@ -426,36 +426,59 @@ func TestManagerBundledCodexAliasUpdateRemovePreferInstalledPath(t *testing.T) {
 	assert.Equal(t, dir, removed.Source)
 }
 
-func TestManagerBundledCodexLifecycle(t *testing.T) {
+func TestManagerShippedPluginLifecycle(t *testing.T) {
 	t.Parallel()
 
 	mgr := setupTestManager(t)
 	ctx := context.Background()
-	aliases := []string{"bundled:ero-plugin-codex", "ero-plugin-codex", "codex", "Codex"}
 
-	for _, alias := range aliases {
-		t.Run("install "+alias, func(t *testing.T) {
-			_, err := mgr.Install(ctx, alias)
+	for _, descriptor := range bundledPlugins() {
+		aliases := []string{descriptor.Source, descriptor.Name}
+		for _, contribution := range descriptor.Contributions {
+			aliases = append(aliases, contribution.ID, contribution.Label)
+		}
+
+		for _, alias := range aliases {
+			if alias == "" {
+				continue
+			}
+			t.Run("install "+alias, func(t *testing.T) {
+				_, err := mgr.Install(ctx, alias)
+				require.Error(t, err)
+				assert.Contains(t, err.Error(), "shipped")
+				assert.Contains(t, err.Error(), "cannot be installed")
+			})
+
+			t.Run("update "+alias, func(t *testing.T) {
+				updates, err := mgr.Update(ctx, alias)
+				require.NoError(t, err)
+				require.Len(t, updates, 1)
+				assert.Equal(t, descriptor.Source, updates[0].Source)
+				assert.Equal(t, descriptor.Name, updates[0].Name)
+				assert.Contains(t, updates[0].Message, "shipped")
+				assert.Contains(t, updates[0].Message, "cannot be updated")
+			})
+
+			t.Run("remove "+alias, func(t *testing.T) {
+				_, err := mgr.Remove(ctx, alias)
+				require.Error(t, err)
+				assert.Contains(t, err.Error(), "shipped")
+				assert.Contains(t, err.Error(), "cannot be removed")
+			})
+		}
+	}
+}
+
+func TestManagerInstallRejectsShippedPluginLocalPaths(t *testing.T) {
+	t.Parallel()
+
+	mgr := setupTestManager(t)
+	for _, descriptor := range bundledPlugins() {
+		t.Run(descriptor.Name, func(t *testing.T) {
+			_, err := mgr.Install(context.Background(), descriptor.Path)
 			require.Error(t, err)
 			assert.Contains(t, err.Error(), "shipped")
 			assert.Contains(t, err.Error(), "cannot be installed")
-		})
-
-		t.Run("update "+alias, func(t *testing.T) {
-			updates, err := mgr.Update(ctx, alias)
-			require.NoError(t, err)
-			require.Len(t, updates, 1)
-			assert.Equal(t, "bundled:ero-plugin-codex", updates[0].Source)
-			assert.Equal(t, "ero-plugin-codex", updates[0].Name)
-			assert.Contains(t, updates[0].Message, "shipped")
-			assert.Contains(t, updates[0].Message, "cannot be updated")
-		})
-
-		t.Run("remove "+alias, func(t *testing.T) {
-			_, err := mgr.Remove(ctx, alias)
-			require.Error(t, err)
-			assert.Contains(t, err.Error(), "shipped")
-			assert.Contains(t, err.Error(), "cannot be removed")
 		})
 	}
 }

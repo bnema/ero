@@ -40,12 +40,46 @@ builds:
       - -trimpath
     ldflags:
       - -s -w
+  - id: ero-plugin-github
+    main: ./plugins/github/cmd/ero-plugin-github
+    binary: plugins/github/bin/ero-plugin-github
+    env:
+      - CGO_ENABLED=0
+    goos:
+      - linux
+      - darwin
+    goarch:
+      - amd64
+      - arm64
+    mod_timestamp: "{{ .CommitTimestamp }}"
+    flags:
+      - -trimpath
+    ldflags:
+      - -s -w
+  - id: ero-plugin-pi-coding-agent
+    main: ./plugins/pi-coding-agent/cmd/ero-plugin-pi-coding-agent
+    binary: plugins/pi-coding-agent/bin/ero-plugin-pi-coding-agent
+    env:
+      - CGO_ENABLED=0
+    goos:
+      - linux
+      - darwin
+    goarch:
+      - amd64
+      - arm64
+    mod_timestamp: "{{ .CommitTimestamp }}"
+    flags:
+      - -trimpath
+    ldflags:
+      - -s -w
 
 archives:
   - id: ero
     ids:
       - ero
       - ero-plugin-codex
+      - ero-plugin-github
+      - ero-plugin-pi-coding-agent
     formats:
       - tar.gz
     name_template: >-
@@ -58,6 +92,14 @@ archives:
       - LICENSE
       - src: plugins/codex/ero-plugin.toml
         dst: plugins/codex/ero-plugin.toml
+      - src: plugins/github/ero-plugin.toml
+        dst: plugins/github/ero-plugin.toml
+      - src: plugins/pi-coding-agent/ero-plugin.toml
+        dst: plugins/pi-coding-agent/ero-plugin.toml
+      - src: plugins/pi-coding-agent/package.json
+        dst: plugins/pi-coding-agent/package.json
+      - src: plugins/pi-coding-agent/extension
+        dst: plugins/pi-coding-agent/extension
 
 checksum:
   name_template: checksums.txt

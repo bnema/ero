@@ -5,10 +5,10 @@ manifest_version = "1"
 protocol = "ero.plugin.v1"
 
 [runtime]
-command = "./ero-plugin-github"
+command = "./bin/ero-plugin-github"
 
 [build]
-command = "go build -o ./ero-plugin-github ./cmd/ero-plugin-github"
+command = "go build -o ./bin/ero-plugin-github ./cmd/ero-plugin-github"
 
 [[contributions]]
 type = "review_provider"
