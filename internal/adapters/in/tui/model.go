@@ -224,7 +224,7 @@ func NewModelWithActiveProviderContextConfig(ctx context.Context, files []core.R
 		markdownRenderer:     NewMarkdownRenderer(),
 		ctx:                  ctx,
 		themeMode:            themeMode,
-		themeAppearance:      core.ResolveThemeAppearance(themeMode, core.SystemThemeUnknown, core.ThemeAppearanceDark),
+		themeAppearance:      core.ResolveThemeAppearance(themeMode, core.SystemThemeUnknown, core.ThemeAppearanceLight),
 		systemTheme:          core.SystemThemeUnknown,
 		themeModeChanges:     config.ThemeModeChanges,
 		reviewLineCache:      render.NewReviewLineCache(),
@@ -666,6 +666,7 @@ func (m Model) View() tea.View {
 	view := tea.NewView(content)
 	view.AltScreen = true
 	view.MouseMode = tea.MouseModeCellMotion
+	view.BackgroundColor = lipgloss.Color(theme.CurrentPalette().ColorBackground)
 	if m.commentEditor != nil {
 		view.KeyboardEnhancements.ReportAllKeysAsEscapeCodes = true
 		view.KeyboardEnhancements.ReportAssociatedText = true

@@ -13,6 +13,12 @@ import (
 	"ero/internal/core"
 )
 
+func TestModelAutoUsesLightFallbackBeforeTerminalDetection(t *testing.T) {
+	model := NewModelWithActiveProviderContextConfig(context.Background(), nil, nil, nil, core.ReviewRequest{}, nil, core.ReviewContext{}, nil, nil, ModelConfig{ThemeMode: core.ThemeModeAuto})
+
+	assert.Equal(t, core.ThemeAppearanceLight, model.ThemeAppearance())
+}
+
 func TestModelAutoThemeFollowsBackgroundColorMessages(t *testing.T) {
 	theme.ApplyAppearance(core.ThemeAppearanceDark)
 	t.Cleanup(func() { theme.ApplyAppearance(core.ThemeAppearanceDark) })
@@ -69,6 +75,22 @@ func TestModelIgnoresStaleAutoThemeDetectionTicks(t *testing.T) {
 	model = updated.(Model)
 	assert.NotNil(t, cmd)
 	assert.Equal(t, core.ThemeModeAuto, model.ThemeMode())
+}
+
+func TestModelLightViewSetsLightBackgroundForUnstyledAreas(t *testing.T) {
+	theme.ApplyAppearance(core.ThemeAppearanceDark)
+	t.Cleanup(func() { theme.ApplyAppearance(core.ThemeAppearanceDark) })
+
+	model := NewModelWithActiveProviderContextConfig(context.Background(), []core.ReviewFile{{
+		Path:     "demo.go",
+		Sections: []core.ReviewSection{{ID: "changed", Kind: core.SectionKindChanged, Lines: []core.ReviewLine{{NewLineNumber: 1, Kind: core.LineKindUnchanged, Content: "short"}}}},
+	}}, nil, nil, core.ReviewRequest{}, nil, core.ReviewContext{}, nil, nil, ModelConfig{ThemeMode: core.ThemeModeLight})
+
+	view := model.View()
+
+	require.NotNil(t, view.BackgroundColor)
+	assert.NotContains(t, view.Content, "48;5;236")
+	assert.NotContains(t, view.Content, "48;2;31;42;68")
 }
 
 func TestModelAppliesLiveThemeConfigChanges(t *testing.T) {

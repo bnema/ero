@@ -15,6 +15,7 @@ func TestApplyAppearanceKeepsDarkPaletteAsDefault(t *testing.T) {
 
 	assert.False(t, changed)
 	assert.Equal(t, core.ThemeAppearanceDark, CurrentAppearance())
+	assert.Equal(t, "#000000", CurrentPalette().ColorBackground)
 	assert.Equal(t, "#c9d1d9", ColorText)
 	assert.Equal(t, "#011209", CurrentPalette().AddedLineBg)
 	assert.Equal(t, "github-dark", CurrentPalette().ChromaStyle)
@@ -28,6 +29,7 @@ func TestApplyAppearanceSwitchesToCompleteLightPalette(t *testing.T) {
 
 	assert.True(t, changed)
 	assert.Equal(t, core.ThemeAppearanceLight, CurrentAppearance())
+	assert.Equal(t, "#ffffff", CurrentPalette().ColorBackground)
 	assert.Equal(t, "#24292f", ColorText)
 	assert.Equal(t, "#dafbe1", CurrentPalette().AddedLineBg)
 	assert.Equal(t, "#0969da", ColorAccent)

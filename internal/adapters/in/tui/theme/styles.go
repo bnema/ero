@@ -14,6 +14,7 @@ import (
 type Palette struct {
 	Appearance core.ThemeAppearance
 
+	ColorBackground string
 	ColorText       string
 	ColorMutedText  string
 	ColorAccent     string
@@ -101,6 +102,7 @@ type Styles struct {
 var darkPalette = Palette{
 	Appearance: core.ThemeAppearanceDark,
 
+	ColorBackground: "#000000",
 	ColorText:       "#c9d1d9",
 	ColorMutedText:  "#8b949e",
 	ColorAccent:     "#58a6ff",
@@ -145,6 +147,7 @@ var darkPalette = Palette{
 var lightPalette = Palette{
 	Appearance: core.ThemeAppearanceLight,
 
+	ColorBackground: "#ffffff",
 	ColorText:       "#24292f",
 	ColorMutedText:  "#57606a",
 	ColorAccent:     "#0969da",

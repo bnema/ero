@@ -76,6 +76,23 @@ func TestReviewPaneSyncsRendererToContentWidthOnCreateAndResize(t *testing.T) {
 	assert.Equal(t, 10, renderer.widths[len(renderer.widths)-1])
 }
 
+func TestReviewPaneFillsStyledRowsAcrossContentWidth(t *testing.T) {
+	t.Parallel()
+
+	pane := NewReviewPane(ReviewPaneConfig{
+		Width:  8,
+		Height: 1,
+		Renderer: reviewPaneRendererFunc(func(row presenter.ReviewRow, rowIndex int, state render.ReviewVisualState) string {
+			return "x"
+		}),
+	})
+	pane.SetRows(reviewPaneRows(1))
+
+	view := stripANSI(pane.View(render.ReviewVisualState{CursorRow: 0}))
+
+	assert.Equal(t, nerdIconArrowRight+" x     ", view)
+}
+
 func TestReviewPaneTruncatesContentWithinRemainingGutterWidth(t *testing.T) {
 	t.Parallel()
 
@@ -133,6 +150,9 @@ func (f reviewPaneRendererFunc) Gutter(row presenter.ReviewRow, rowIndex int, st
 }
 
 func (f reviewPaneRendererFunc) Style(rowIndex int, state render.ReviewVisualState) lipgloss.Style {
+	if rowIndex == state.CursorRow {
+		return lipgloss.NewStyle().Background(lipgloss.Color("#eeeeee"))
+	}
 	return lipgloss.NewStyle()
 }
 

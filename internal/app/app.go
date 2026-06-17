@@ -102,7 +102,7 @@ func newAppWithClipboard(cfg *viper.Viper, loader reviewLoader, runner tuiRunner
 		if cfg.GetBool("startup-detect") {
 			startupPrompt := prompt
 			if themed, ok := prompt.(themedStartupPrompt); ok {
-				startupPrompt = themed.WithAppearance(core.ResolveThemeAppearance(initialThemeMode, core.SystemThemeUnknown, core.ThemeAppearanceDark))
+				startupPrompt = themed.WithAppearance(core.ResolveThemeAppearance(initialThemeMode, core.SystemThemeUnknown, core.ThemeAppearanceLight))
 			}
 			request, err := resolveStartupRequest(initialRequest, startupReader, startupPrompt, isInteractive)
 			if err != nil {
