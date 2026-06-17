@@ -44,12 +44,15 @@ func NewRootCommand(cfg *viper.Viper, run RunFunc) (*cobra.Command, error) {
 	flags.Int("context-lines", 3, "Number of unchanged context lines to keep around changes")
 	flags.String("log-level", "info", "Log level (trace, debug, info, warn, error, disabled)")
 	flags.String("log-file", "", "Write logs to this file instead of the default XDG state log")
+	flags.String("theme", "auto", "Theme mode: auto, dark, or light")
+	flags.String("config", "", "Path to a config file (defaults to XDG config when present)")
 	flags.Duration("provider-sync-interval", 2*time.Minute, "Interval for active review provider background sync")
 	cfg.SetDefault("repo-path", ".")
 	cfg.SetDefault("context-lines", 3)
 	cfg.SetDefault("diff-mode", string(core.DiffModeBranch))
 	cfg.SetDefault("startup-detect", true)
 	cfg.SetDefault("log-level", "info")
+	cfg.SetDefault("theme", "auto")
 	cfg.SetDefault("provider-sync-interval", 2*time.Minute)
 	if err := cfg.BindPFlag("repo-path", flags.Lookup("repo-path")); err != nil {
 		return nil, fmt.Errorf("bind repo-path flag: %w", err)
@@ -62,6 +65,12 @@ func NewRootCommand(cfg *viper.Viper, run RunFunc) (*cobra.Command, error) {
 	}
 	if err := cfg.BindPFlag("log-file", flags.Lookup("log-file")); err != nil {
 		return nil, fmt.Errorf("bind log-file flag: %w", err)
+	}
+	if err := cfg.BindPFlag("theme", flags.Lookup("theme")); err != nil {
+		return nil, fmt.Errorf("bind theme flag: %w", err)
+	}
+	if err := cfg.BindPFlag("config", flags.Lookup("config")); err != nil {
+		return nil, fmt.Errorf("bind config flag: %w", err)
 	}
 	if err := cfg.BindPFlag("provider-sync-interval", flags.Lookup("provider-sync-interval")); err != nil {
 		return nil, fmt.Errorf("bind provider-sync-interval flag: %w", err)

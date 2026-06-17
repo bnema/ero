@@ -19,12 +19,14 @@ func TestNewRootCommandExecutesRunFuncAndBindsConfig(t *testing.T) {
 		args          []string
 		expectRepo    string
 		expectContext int
+		expectTheme   string
 	}{
 		{
-			name:          "binds repo path and context lines",
-			args:          []string{"--repo-path", "/tmp/repo", "--context-lines", "2"},
+			name:          "binds repo path, context lines, and theme",
+			args:          []string{"--repo-path", "/tmp/repo", "--context-lines", "2", "--theme", "light"},
 			expectRepo:    "/tmp/repo",
 			expectContext: 2,
+			expectTheme:   "light",
 		},
 	}
 
@@ -52,6 +54,7 @@ func TestNewRootCommandExecutesRunFuncAndBindsConfig(t *testing.T) {
 			assert.True(t, called)
 			assert.Equal(t, tt.expectRepo, cfg.GetString("repo-path"))
 			assert.Equal(t, tt.expectContext, cfg.GetInt("context-lines"))
+			assert.Equal(t, tt.expectTheme, cfg.GetString("theme"))
 			assert.Equal(t, string(core.DiffModeBranch), cfg.GetString("diff-mode"))
 		})
 	}

@@ -7,6 +7,7 @@ import (
 	"charm.land/lipgloss/v2"
 	"github.com/stretchr/testify/assert"
 
+	"ero/internal/adapters/in/tui/theme"
 	"ero/internal/core"
 )
 
@@ -67,6 +68,27 @@ func TestReviewLine(t *testing.T) {
 			}
 		})
 	}
+}
+
+func TestReviewLineUsesLightChromaStyleWhenThemeIsLight(t *testing.T) {
+	theme.ApplyAppearance(core.ThemeAppearanceLight)
+	t.Cleanup(func() { theme.ApplyAppearance(core.ThemeAppearanceDark) })
+
+	rendered := ReviewLine(core.ReviewLine{
+		NewLineNumber: 5,
+		Content:       "func main() {}",
+		Kind:          core.LineKindAdded,
+		SyntaxTokens: []core.SyntaxToken{
+			{Start: 0, End: 4, Type: core.SemanticTokenText, SourceType: "KeywordDeclaration"},
+			{Start: 5, End: 9, Type: core.SemanticTokenText, SourceType: "NameFunction"},
+		},
+	}, 4)
+
+	assert.Contains(t, rendered, "48;2;218;251;225")
+	assert.Contains(t, rendered, "38;2;207;34;46")
+	assert.Contains(t, rendered, "38;2;102;57;186")
+	assert.NotContains(t, rendered, "48;2;1;18;9")
+	assert.Contains(t, stripANSI(rendered), "+ func main() {}")
 }
 
 func TestApplySyntaxHighlightingSkipsAlreadyRenderedTokenRanges(t *testing.T) {

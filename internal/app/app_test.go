@@ -4,6 +4,8 @@ import (
 	"bytes"
 	"context"
 	"errors"
+	"os"
+	"path/filepath"
 	"testing"
 
 	tea "charm.land/bubbletea/v2"
@@ -11,6 +13,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"ero/internal/adapters/in/tui"
 	"ero/internal/core"
 	"ero/internal/ports"
 	"ero/internal/ports/mocks"
@@ -244,6 +247,46 @@ func TestRunLoadsReviewAndRunsTUIWithConfig(t *testing.T) {
 			require.NotNil(t, runner.model)
 		})
 	}
+}
+
+func TestRunPassesThemeModeFromFlagToTUI(t *testing.T) {
+	t.Parallel()
+
+	cfg := viper.New()
+	loader := &fakeReviewLoader{files: minimalReviewFiles()}
+	runner := &fakeRunner{}
+	application, err := newApp(cfg, loader, runner)
+	require.NoError(t, err)
+
+	var stdout bytes.Buffer
+	var stderr bytes.Buffer
+	err = application.Run([]string{"--theme", "light"}, &stdout, &stderr)
+	require.NoError(t, err)
+
+	model, ok := runner.model.(tui.Model)
+	require.True(t, ok)
+	assert.Equal(t, core.ThemeModeLight, model.ThemeMode())
+}
+
+func TestRunLoadsThemeModeFromConfigFile(t *testing.T) {
+	t.Parallel()
+
+	configPath := filepath.Join(t.TempDir(), "ero.toml")
+	require.NoError(t, os.WriteFile(configPath, []byte("theme = \"dark\"\n"), 0o600))
+	cfg := viper.New()
+	loader := &fakeReviewLoader{files: minimalReviewFiles()}
+	runner := &fakeRunner{}
+	application, err := newApp(cfg, loader, runner)
+	require.NoError(t, err)
+
+	var stdout bytes.Buffer
+	var stderr bytes.Buffer
+	err = application.Run([]string{"--config", configPath}, &stdout, &stderr)
+	require.NoError(t, err)
+
+	model, ok := runner.model.(tui.Model)
+	require.True(t, ok)
+	assert.Equal(t, core.ThemeModeDark, model.ThemeMode())
 }
 
 func TestBuildReviewProvidersUsesDescriptorsAndFactory(t *testing.T) {

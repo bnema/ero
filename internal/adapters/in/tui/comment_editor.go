@@ -6,12 +6,17 @@ import (
 	"charm.land/bubbles/v2/textarea"
 	tea "charm.land/bubbletea/v2"
 	"charm.land/lipgloss/v2"
+
+	"ero/internal/adapters/in/tui/theme"
 )
 
-var (
-	commentEditorStyle      = lipgloss.NewStyle().Border(lipgloss.RoundedBorder()).BorderForeground(lipgloss.Color("62")).Padding(0, 1)
-	commentEditorTitleStyle = lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("81"))
-)
+func commentEditorStyle() lipgloss.Style {
+	return theme.SearchPaneStyle
+}
+
+func commentEditorTitleStyle() lipgloss.Style {
+	return theme.SearchPaneTitleStyle
+}
 
 type CommentEditorAction string
 
@@ -76,9 +81,9 @@ func (e CommentEditor) ViewWithWidth(availableWidth int) string {
 	input := e.input
 	input.SetWidth(max(width-4, 20))
 	lines := []string{
-		commentEditorTitleStyle.Render("Add review comment"),
+		commentEditorTitleStyle().Render("Add review comment"),
 		input.View(),
 		renderKeyHints([]KeyHint{{Key: commentSubmitKeyLabel(), Label: "submit"}, {Key: "esc", Label: "cancel"}}),
 	}
-	return commentEditorStyle.Width(width).Render(strings.Join(lines, "\n"))
+	return commentEditorStyle().Width(width).Render(strings.Join(lines, "\n"))
 }
