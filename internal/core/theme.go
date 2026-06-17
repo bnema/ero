@@ -59,10 +59,12 @@ func SystemThemePreferenceFromDarkBackground(isDark bool) SystemThemePreference 
 // prefer-light.
 func ParseSystemThemePreference(raw uint32) SystemThemePreference {
 	switch raw {
-	case uint32(SystemThemePreferDark):
+	case 1:
 		return SystemThemePreferDark
-	case uint32(SystemThemePreferLight):
+	case 2:
 		return SystemThemePreferLight
+	case 0:
+		return SystemThemeUnknown
 	default:
 		return SystemThemeUnknown
 	}

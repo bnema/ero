@@ -359,7 +359,7 @@ func stylesForPalette(p Palette) Styles {
 		FileHeaderStyle:        lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color(p.FileHeaderFg)),
 		FileRuleStyle:          lipgloss.NewStyle().Foreground(lipgloss.Color(p.FileRuleFg)),
 		PanelTitleStyle:        lipgloss.NewStyle().Bold(true).Underline(true),
-		MutedStyle:             lipgloss.NewStyle().Foreground(lipgloss.Color(p.FileRuleFg)),
+		MutedStyle:             lipgloss.NewStyle().Foreground(lipgloss.Color(p.ColorMutedText)),
 		AddedLineStyle:         lipgloss.NewStyle().Background(lipgloss.Color(p.AddedLineBg)).Foreground(lipgloss.Color(p.ColorText)),
 		DeletedLineStyle:       lipgloss.NewStyle().Background(lipgloss.Color(p.DeletedLineBg)).Foreground(lipgloss.Color(p.ColorText)),
 		AddedMarkerStyle:       lipgloss.NewStyle().Foreground(lipgloss.Color(p.AddedMarkerFg)).Bold(true),

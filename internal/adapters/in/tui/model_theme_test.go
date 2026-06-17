@@ -26,6 +26,9 @@ func TestModelAutoUsesInitialSystemThemePreference(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
+			originalAppearance := theme.CurrentAppearance()
+			t.Cleanup(func() { theme.ApplyAppearance(originalAppearance) })
+
 			model := NewModelWithActiveProviderContextConfig(context.Background(), nil, nil, nil, core.ReviewRequest{}, nil, core.ReviewContext{}, nil, nil, ModelConfig{ThemeMode: core.ThemeModeAuto, SystemTheme: tt.preference})
 
 			assert.Equal(t, tt.want, model.ThemeAppearance())
@@ -103,8 +106,8 @@ func TestModelLightViewSetsLightBackgroundForUnstyledAreas(t *testing.T) {
 	view := model.View()
 
 	require.NotNil(t, view.BackgroundColor)
-	assert.NotContains(t, view.Content, "48;5;236")
-	assert.NotContains(t, view.Content, "48;2;31;42;68")
+	assert.Contains(t, view.Content, "48;2;234;238;242")
+	assert.Contains(t, view.Content, "48;5;252")
 }
 
 func TestModelAppliesLiveThemeConfigChanges(t *testing.T) {
