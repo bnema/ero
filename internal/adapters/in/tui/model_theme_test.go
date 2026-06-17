@@ -13,10 +13,24 @@ import (
 	"ero/internal/core"
 )
 
-func TestModelAutoUsesLightFallbackBeforeTerminalDetection(t *testing.T) {
-	model := NewModelWithActiveProviderContextConfig(context.Background(), nil, nil, nil, core.ReviewRequest{}, nil, core.ReviewContext{}, nil, nil, ModelConfig{ThemeMode: core.ThemeModeAuto})
+func TestModelAutoUsesInitialSystemThemePreference(t *testing.T) {
+	tests := []struct {
+		name       string
+		preference core.SystemThemePreference
+		want       core.ThemeAppearance
+	}{
+		{name: "dark system", preference: core.SystemThemePreferDark, want: core.ThemeAppearanceDark},
+		{name: "light system", preference: core.SystemThemePreferLight, want: core.ThemeAppearanceLight},
+		{name: "unknown system falls back light", preference: core.SystemThemeUnknown, want: core.ThemeAppearanceLight},
+	}
 
-	assert.Equal(t, core.ThemeAppearanceLight, model.ThemeAppearance())
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			model := NewModelWithActiveProviderContextConfig(context.Background(), nil, nil, nil, core.ReviewRequest{}, nil, core.ReviewContext{}, nil, nil, ModelConfig{ThemeMode: core.ThemeModeAuto, SystemTheme: tt.preference})
+
+			assert.Equal(t, tt.want, model.ThemeAppearance())
+		})
+	}
 }
 
 func TestModelAutoThemeFollowsBackgroundColorMessages(t *testing.T) {

@@ -13,6 +13,7 @@ require (
 	github.com/cli/go-gh/v2 v2.13.0
 	github.com/fsnotify/fsnotify v1.9.0
 	github.com/go-git/go-git/v5 v5.19.1
+	github.com/godbus/dbus/v5 v5.2.2
 	github.com/google/shlex v0.0.0-20191202100458-e7afc7fbc510
 	github.com/pelletier/go-toml/v2 v2.2.4
 	github.com/spf13/cobra v1.10.2

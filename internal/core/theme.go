@@ -54,6 +54,20 @@ func SystemThemePreferenceFromDarkBackground(isDark bool) SystemThemePreference 
 	return SystemThemePreferLight
 }
 
+// ParseSystemThemePreference normalizes a raw XDG portal color-scheme value.
+// The portal uses 0 for no preference, 1 for prefer-dark, and 2 for
+// prefer-light.
+func ParseSystemThemePreference(raw uint32) SystemThemePreference {
+	switch raw {
+	case uint32(SystemThemePreferDark):
+		return SystemThemePreferDark
+	case uint32(SystemThemePreferLight):
+		return SystemThemePreferLight
+	default:
+		return SystemThemeUnknown
+	}
+}
+
 // ResolveThemeAppearance chooses the concrete light or dark appearance. Explicit
 // light/dark modes win, auto follows the detected system preference, then the
 // fallback appearance, and finally dark when nothing else is available.

@@ -29,6 +29,31 @@ func TestParseThemeMode(t *testing.T) {
 	}
 }
 
+func TestParseSystemThemePreference(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name string
+		raw  uint32
+		want SystemThemePreference
+	}{
+		{name: "no preference", raw: 0, want: SystemThemeUnknown},
+		{name: "prefer dark", raw: 1, want: SystemThemePreferDark},
+		{name: "prefer light", raw: 2, want: SystemThemePreferLight},
+		{name: "unknown", raw: 99, want: SystemThemeUnknown},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			if got := ParseSystemThemePreference(tt.raw); got != tt.want {
+				t.Fatalf("ParseSystemThemePreference(%d) = %v, want %v", tt.raw, got, tt.want)
+			}
+		})
+	}
+}
+
 func TestResolveThemeAppearance(t *testing.T) {
 	t.Parallel()
 

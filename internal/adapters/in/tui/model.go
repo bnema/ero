@@ -25,6 +25,7 @@ const (
 
 type ModelConfig struct {
 	ThemeMode        core.ThemeMode
+	SystemTheme      core.SystemThemePreference
 	ThemeModeChanges <-chan core.ThemeMode
 }
 
@@ -224,8 +225,8 @@ func NewModelWithActiveProviderContextConfig(ctx context.Context, files []core.R
 		markdownRenderer:     NewMarkdownRenderer(),
 		ctx:                  ctx,
 		themeMode:            themeMode,
-		themeAppearance:      core.ResolveThemeAppearance(themeMode, core.SystemThemeUnknown, core.ThemeAppearanceLight),
-		systemTheme:          core.SystemThemeUnknown,
+		themeAppearance:      core.ResolveThemeAppearance(themeMode, config.SystemTheme, core.ThemeAppearanceLight),
+		systemTheme:          config.SystemTheme,
 		themeModeChanges:     config.ThemeModeChanges,
 		reviewLineCache:      render.NewReviewLineCache(),
 	}

@@ -5,6 +5,7 @@ import (
 	"strings"
 
 	"ero/internal/adapters/in/tui/presenter"
+	"ero/internal/adapters/in/tui/theme"
 	"ero/internal/core"
 )
 
@@ -23,6 +24,7 @@ type reviewLineCacheKey struct {
 	Content       string
 	Tokens        string
 	NumberWidth   int
+	Appearance    core.ThemeAppearance
 }
 
 func NewReviewLineCache() *ReviewLineCache {
@@ -71,6 +73,7 @@ func newReviewLineCacheKey(row presenter.ReviewRow, numberWidth int) reviewLineC
 		Content:       line.Content,
 		Tokens:        syntaxTokensKey(line.SyntaxTokens),
 		NumberWidth:   numberWidth,
+		Appearance:    theme.CurrentAppearance(),
 	}
 }
 
