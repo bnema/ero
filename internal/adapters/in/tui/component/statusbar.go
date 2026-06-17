@@ -211,12 +211,12 @@ func renderNerdFontProviderSync(model StatusModel) string {
 	}
 	var b strings.Builder
 	b.WriteString(theme.StatusBaseStyle.Render(" "))
-	b.WriteString(theme.StatusBaseStyle.Foreground(lipgloss.Color("248")).Render(providerGlyph(provider)))
+	b.WriteString(theme.StatusBaseStyle.Foreground(lipgloss.Color(theme.ColorStatusInfo)).Render(providerGlyph(provider)))
 	b.WriteString(theme.StatusBaseStyle.Render(" "))
 	b.WriteString(theme.StatusBaseStyle.Foreground(providerStatusDotColor(model.ProviderSync.Status)).Render(nerdFontSyncDot))
 	for _, part := range nerdFontProviderSyncTextParts(model) {
 		b.WriteString(theme.StatusBaseStyle.Render(" "))
-		b.WriteString(theme.StatusBaseStyle.Foreground(lipgloss.Color("248")).Render(part))
+		b.WriteString(theme.StatusBaseStyle.Foreground(lipgloss.Color(theme.ColorStatusInfo)).Render(part))
 	}
 	b.WriteString(theme.StatusBaseStyle.Render(" "))
 	return b.String()
@@ -250,15 +250,15 @@ func providerGlyph(provider string) string {
 func providerStatusDotColor(status core.ProviderSyncStatus) color.Color {
 	switch status {
 	case core.ProviderSyncStatusSynced:
-		return lipgloss.Color("#3fb950")
+		return lipgloss.Color(theme.CurrentPalette().AddedMarkerFg)
 	case core.ProviderSyncStatusFailed:
-		return lipgloss.Color("#ff7b72")
+		return lipgloss.Color(theme.CurrentPalette().DeletedMarkerFg)
 	case core.ProviderSyncStatusBackingOff:
-		return lipgloss.Color("#ffa657")
+		return lipgloss.Color(theme.ColorWarning)
 	case core.ProviderSyncStatusLoadingCache, core.ProviderSyncStatusSyncing:
-		return lipgloss.Color("#58a6ff")
+		return lipgloss.Color(theme.ColorAccent)
 	default:
-		return lipgloss.Color("81")
+		return lipgloss.Color(theme.ColorAccent)
 	}
 }
 

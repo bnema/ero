@@ -11,7 +11,9 @@ require (
 	github.com/bnema/zerowrap v1.4.0
 	github.com/charmbracelet/x/ansi v0.11.7
 	github.com/cli/go-gh/v2 v2.13.0
+	github.com/fsnotify/fsnotify v1.9.0
 	github.com/go-git/go-git/v5 v5.19.1
+	github.com/godbus/dbus/v5 v5.2.2
 	github.com/google/shlex v0.0.0-20191202100458-e7afc7fbc510
 	github.com/pelletier/go-toml/v2 v2.2.4
 	github.com/spf13/cobra v1.10.2
@@ -43,7 +45,6 @@ require (
 	github.com/davecgh/go-spew v1.1.1 // indirect
 	github.com/dlclark/regexp2 v1.12.0 // indirect
 	github.com/emirpasic/gods v1.18.1 // indirect
-	github.com/fsnotify/fsnotify v1.9.0 // indirect
 	github.com/go-git/gcfg v1.5.1-0.20230307220236-3a3c6141e376 // indirect
 	github.com/go-git/go-billy/v5 v5.9.0 // indirect
 	github.com/go-viper/mapstructure/v2 v2.4.0 // indirect

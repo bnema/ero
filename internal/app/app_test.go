@@ -4,6 +4,8 @@ import (
 	"bytes"
 	"context"
 	"errors"
+	"os"
+	"path/filepath"
 	"testing"
 
 	tea "charm.land/bubbletea/v2"
@@ -11,6 +13,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"ero/internal/adapters/in/tui"
 	"ero/internal/core"
 	"ero/internal/ports"
 	"ero/internal/ports/mocks"
@@ -246,6 +249,85 @@ func TestRunLoadsReviewAndRunsTUIWithConfig(t *testing.T) {
 	}
 }
 
+func TestRunPassesInitialSystemThemeToTUI(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name       string
+		args       []string
+		preference core.SystemThemePreference
+		wantMode   core.ThemeMode
+		want       core.ThemeAppearance
+	}{
+		{name: "auto follows dark system", preference: core.SystemThemePreferDark, wantMode: core.ThemeModeAuto, want: core.ThemeAppearanceDark},
+		{name: "auto follows light system", preference: core.SystemThemePreferLight, wantMode: core.ThemeModeAuto, want: core.ThemeAppearanceLight},
+		{name: "explicit dark ignores light system", args: []string{"--theme", "dark"}, preference: core.SystemThemePreferLight, wantMode: core.ThemeModeDark, want: core.ThemeAppearanceDark},
+		{name: "explicit light ignores dark system", args: []string{"--theme", "light"}, preference: core.SystemThemePreferDark, wantMode: core.ThemeModeLight, want: core.ThemeAppearanceLight},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			cfg := viper.New()
+			loader := &fakeReviewLoader{files: minimalReviewFiles()}
+			runner := &fakeRunner{}
+			application, err := newAppWithClipboard(cfg, loader, runner, nil, nil, func() bool { return false }, nil, fakeSystemThemeReader{preference: tt.preference})
+			require.NoError(t, err)
+
+			var stdout bytes.Buffer
+			var stderr bytes.Buffer
+			err = application.Run(tt.args, &stdout, &stderr)
+			require.NoError(t, err)
+
+			model, ok := runner.model.(tui.Model)
+			require.True(t, ok)
+			assert.Equal(t, tt.wantMode, model.ThemeMode())
+			assert.Equal(t, tt.want, model.ThemeAppearance())
+		})
+	}
+}
+
+func TestRunPassesThemeModeFromFlagToTUI(t *testing.T) {
+	t.Parallel()
+
+	cfg := viper.New()
+	loader := &fakeReviewLoader{files: minimalReviewFiles()}
+	runner := &fakeRunner{}
+	application, err := newApp(cfg, loader, runner)
+	require.NoError(t, err)
+
+	var stdout bytes.Buffer
+	var stderr bytes.Buffer
+	err = application.Run([]string{"--theme", "light"}, &stdout, &stderr)
+	require.NoError(t, err)
+
+	model, ok := runner.model.(tui.Model)
+	require.True(t, ok)
+	assert.Equal(t, core.ThemeModeLight, model.ThemeMode())
+}
+
+func TestRunLoadsThemeModeFromConfigFile(t *testing.T) {
+	t.Parallel()
+
+	configPath := filepath.Join(t.TempDir(), "ero.toml")
+	require.NoError(t, os.WriteFile(configPath, []byte("theme = \"dark\"\n"), 0o600))
+	cfg := viper.New()
+	loader := &fakeReviewLoader{files: minimalReviewFiles()}
+	runner := &fakeRunner{}
+	application, err := newApp(cfg, loader, runner)
+	require.NoError(t, err)
+
+	var stdout bytes.Buffer
+	var stderr bytes.Buffer
+	err = application.Run([]string{"--config", configPath}, &stdout, &stderr)
+	require.NoError(t, err)
+
+	model, ok := runner.model.(tui.Model)
+	require.True(t, ok)
+	assert.Equal(t, core.ThemeModeDark, model.ThemeMode())
+}
+
 func TestBuildReviewProvidersUsesDescriptorsAndFactory(t *testing.T) {
 	t.Parallel()
 
@@ -324,6 +406,18 @@ func minimalReviewFiles() []core.ReviewFile {
 			Lines: []core.ReviewLine{{NewLineNumber: 1, Content: "package main", Kind: core.LineKindAdded}},
 		}},
 	}}
+}
+
+type fakeSystemThemeReader struct {
+	preference core.SystemThemePreference
+	err        error
+}
+
+func (f fakeSystemThemeReader) CurrentPreference(context.Context) (core.SystemThemePreference, error) {
+	if f.err != nil {
+		return core.SystemThemeUnknown, f.err
+	}
+	return f.preference, nil
 }
 
 type fakeStartupPrompt struct {

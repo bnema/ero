@@ -47,6 +47,7 @@ func applySyntaxHighlighting(content string, tokens []core.SyntaxToken, baseStyl
 	var result strings.Builder
 	lastEnd := 0
 	background := baseStyle.GetBackground()
+	chroma := chromaStyle()
 
 	for _, token := range tokens {
 		start := min(max(token.Start, 0), len(runes))
@@ -58,7 +59,7 @@ func applySyntaxHighlighting(content string, tokens []core.SyntaxToken, baseStyl
 		if start > lastEnd {
 			result.WriteString(baseStyle.Render(string(runes[lastEnd:start])))
 		}
-		tokenStyle := StyleForSyntaxToken(token)
+		tokenStyle := styleForSyntaxToken(token, chroma)
 		if background != nil {
 			tokenStyle = tokenStyle.Background(background)
 		}
@@ -74,9 +75,13 @@ func applySyntaxHighlighting(content string, tokens []core.SyntaxToken, baseStyl
 }
 
 func StyleForSyntaxToken(token core.SyntaxToken) lipgloss.Style {
+	return styleForSyntaxToken(token, chromaStyle())
+}
+
+func styleForSyntaxToken(token core.SyntaxToken, chroma *basechroma.Style) lipgloss.Style {
 	if token.SourceType != "" {
 		if tokenType, err := basechroma.TokenTypeString(token.SourceType); err == nil {
-			entry := githubDarkStyle().Get(tokenType)
+			entry := chroma.Get(tokenType)
 			style := lipgloss.NewStyle()
 			if entry.Colour.IsSet() {
 				style = style.Foreground(lipgloss.Color(entry.Colour.String()))
@@ -96,8 +101,8 @@ func StyleForSyntaxToken(token core.SyntaxToken) lipgloss.Style {
 	return StyleForToken(token.Type)
 }
 
-func githubDarkStyle() *basechroma.Style {
-	style := styles.Get("github-dark")
+func chromaStyle() *basechroma.Style {
+	style := styles.Get(theme.CurrentPalette().ChromaStyle)
 	if style == nil {
 		return styles.Fallback
 	}

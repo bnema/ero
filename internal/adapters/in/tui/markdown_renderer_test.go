@@ -60,6 +60,22 @@ func TestMarkdownRendererColorsHeadingsAndFencedCodeBlocks(t *testing.T) {
 	}
 }
 
+func TestMarkdownRendererUsesLightCodeTheme(t *testing.T) {
+	renderer := NewMarkdownRenderer()
+
+	got := renderer.Render("```go\nfmt.Println(\"hi\")\n```", 80, MarkdownThemeLight)
+	plain := regexp.MustCompile(`\x1b\[[0-9;?]*[ -/]*[@-~]`).ReplaceAllString(got, "")
+
+	if !strings.Contains(plain, "fmt.Println") {
+		t.Fatalf("expected rendered fenced code block to include code, got %q", got)
+	}
+	// These ANSI colors come from the current light Chroma style; update them if
+	// the light palette's MarkdownCodeTheme changes.
+	if !strings.Contains(got, "38;5;61") || !strings.Contains(got, "38;5;23") {
+		t.Fatalf("expected light code highlighting in rendered markdown, got %q", got)
+	}
+}
+
 func TestMarkdownRendererRendersFencedCodeBlocks(t *testing.T) {
 	renderer := NewMarkdownRenderer()
 

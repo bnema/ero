@@ -3,6 +3,7 @@ package tui
 import (
 	"context"
 	"fmt"
+	"time"
 
 	tea "charm.land/bubbletea/v2"
 	"charm.land/lipgloss/v2"
@@ -16,10 +17,17 @@ import (
 )
 
 const (
-	defaultWidth  = 100
-	defaultHeight = 24
-	contextStep   = 10
+	defaultWidth           = 100
+	defaultHeight          = 24
+	contextStep            = 10
+	themeDetectionInterval = 2 * time.Second
 )
+
+type ModelConfig struct {
+	ThemeMode        core.ThemeMode
+	SystemTheme      core.SystemThemePreference
+	ThemeModeChanges <-chan core.ThemeMode
+}
 
 type reviewLoader interface {
 	LoadReview(request core.ReviewRequest) ([]core.ReviewFile, error)
@@ -38,6 +46,13 @@ type reviewLoadFailedMsg struct {
 type copyFeedbackExpiredMsg struct {
 	id int
 }
+
+type themeConfigChangedMsg struct {
+	mode core.ThemeMode
+	ok   bool
+}
+
+type themeDetectionTickMsg struct{ generation uint64 }
 
 type clipboardCopiedMsg struct {
 	text         string
@@ -93,54 +108,59 @@ type activeProviderSwitchedMsg struct {
 type activeProviderPollDueMsg struct{ generation int64 }
 
 type Model struct {
-	title                string
-	files                []core.ReviewFile
-	loader               reviewLoader
-	request              core.ReviewRequest
-	loading              bool
-	loadError            string
-	selectedFile         int
-	selectedContext      int
-	width                int
-	height               int
-	reviewViewport       ReviewPane
-	reviewAnchors        ReviewAnchors
-	activeFilePath       string
-	cursorRow            int
-	selectionAnchorRow   *int
-	reviewRows           []ReviewRow
-	reviewExpanderRows   map[presenter.ReviewExpanderAnchor]int
-	selectableRows       []int
-	clipboardWriter      ports.ClipboardWriter
-	lastCopiedText       string
-	copyFeedback         string
-	copyFeedbackID       int
-	diffMode             core.DiffMode
-	nerdFont             bool
-	helpActive           bool
-	search               searchState
-	reviewDraft          *core.ReviewDraft
-	commentEditor        *InlineCommentEditor
-	reviewContext        core.ReviewContext
-	reviewProviders      []ports.ReviewProviderClient
-	activeProvider       activeProviderController
-	providerCatalog      []ports.ReviewProviderDescriptor
-	activeProviderKey    string
-	activeRuntimeID      string
-	activeRuntimeInfo    core.ReviewProviderInfo
-	providerSyncState    core.ProviderSyncState
-	providerOverview     *core.ProviderOverview
-	remoteThreads        []core.RemoteReviewThread
-	providerInfos        []core.ReviewProviderInfo
-	providerInfoByClient map[ports.ReviewProviderClient]core.ReviewProviderInfo
-	providerPicker       providerPickerState
-	publish              publishState
-	prSheet              prSheetState
-	markdownRenderer     *MarkdownRenderer
-	ctx                  context.Context
-	reviewLineCache      *render.ReviewLineCache
-	cachedEditorWidth    int
-	cachedEditorLines    []string
+	title                    string
+	files                    []core.ReviewFile
+	loader                   reviewLoader
+	request                  core.ReviewRequest
+	loading                  bool
+	loadError                string
+	selectedFile             int
+	selectedContext          int
+	width                    int
+	height                   int
+	reviewViewport           ReviewPane
+	reviewAnchors            ReviewAnchors
+	activeFilePath           string
+	cursorRow                int
+	selectionAnchorRow       *int
+	reviewRows               []ReviewRow
+	reviewExpanderRows       map[presenter.ReviewExpanderAnchor]int
+	selectableRows           []int
+	clipboardWriter          ports.ClipboardWriter
+	lastCopiedText           string
+	copyFeedback             string
+	copyFeedbackID           int
+	diffMode                 core.DiffMode
+	nerdFont                 bool
+	helpActive               bool
+	search                   searchState
+	reviewDraft              *core.ReviewDraft
+	commentEditor            *InlineCommentEditor
+	reviewContext            core.ReviewContext
+	reviewProviders          []ports.ReviewProviderClient
+	activeProvider           activeProviderController
+	providerCatalog          []ports.ReviewProviderDescriptor
+	activeProviderKey        string
+	activeRuntimeID          string
+	activeRuntimeInfo        core.ReviewProviderInfo
+	providerSyncState        core.ProviderSyncState
+	providerOverview         *core.ProviderOverview
+	remoteThreads            []core.RemoteReviewThread
+	providerInfos            []core.ReviewProviderInfo
+	providerInfoByClient     map[ports.ReviewProviderClient]core.ReviewProviderInfo
+	providerPicker           providerPickerState
+	publish                  publishState
+	prSheet                  prSheetState
+	markdownRenderer         *MarkdownRenderer
+	ctx                      context.Context
+	themeMode                core.ThemeMode
+	themeAppearance          core.ThemeAppearance
+	systemTheme              core.SystemThemePreference
+	themeDetectionGeneration uint64
+	themeModeChanges         <-chan core.ThemeMode
+	reviewLineCache          *render.ReviewLineCache
+	cachedEditorWidth        int
+	cachedEditorLines        []string
 }
 
 func NewModel(files []core.ReviewFile) Model {
@@ -168,11 +188,19 @@ func NewModelWithReviewProvidersContext(ctx context.Context, files []core.Review
 }
 
 func NewModelWithActiveProviderContext(ctx context.Context, files []core.ReviewFile, terminal ports.Terminal, loader reviewLoader, request core.ReviewRequest, clipboardWriter ports.ClipboardWriter, reviewContext core.ReviewContext, activeProvider activeProviderController, providers []ports.ReviewProviderClient) Model {
+	return NewModelWithActiveProviderContextConfig(ctx, files, terminal, loader, request, clipboardWriter, reviewContext, activeProvider, providers, ModelConfig{})
+}
+
+func NewModelWithActiveProviderContextConfig(ctx context.Context, files []core.ReviewFile, terminal ports.Terminal, loader reviewLoader, request core.ReviewRequest, clipboardWriter ports.ClipboardWriter, reviewContext core.ReviewContext, activeProvider activeProviderController, providers []ports.ReviewProviderClient, config ModelConfig) Model {
 	if ctx == nil {
 		ctx = context.Background()
 	}
 	if request.DiffMode == "" {
 		request.DiffMode = core.DiffModeBranch
+	}
+	themeMode := core.ThemeModeDark
+	if config.ThemeMode != "" {
+		themeMode = core.ParseThemeMode(string(config.ThemeMode))
 	}
 	m := Model{
 		title:                "ero",
@@ -196,6 +224,10 @@ func NewModelWithActiveProviderContext(ctx context.Context, files []core.ReviewF
 		remoteThreads:        nil,
 		markdownRenderer:     NewMarkdownRenderer(),
 		ctx:                  ctx,
+		themeMode:            themeMode,
+		themeAppearance:      core.ResolveThemeAppearance(themeMode, config.SystemTheme, core.ThemeAppearanceLight),
+		systemTheme:          config.SystemTheme,
+		themeModeChanges:     config.ThemeModeChanges,
 		reviewLineCache:      render.NewReviewLineCache(),
 	}
 	if terminal != nil {
@@ -206,18 +238,112 @@ func NewModelWithActiveProviderContext(ctx context.Context, files []core.ReviewF
 	return m
 }
 
-func (m Model) Init() tea.Cmd {
-	if m.activeProvider != nil {
-		return m.startActiveProviderCmd()
-	}
-	if len(m.reviewProviders) == 0 {
+func (m Model) ThemeMode() core.ThemeMode {
+	return m.themeMode
+}
+
+func (m Model) ThemeAppearance() core.ThemeAppearance {
+	return m.themeAppearance
+}
+
+func (m Model) watchThemeConfigCmd() tea.Cmd {
+	if m.themeModeChanges == nil {
 		return nil
 	}
-	return m.loadReviewProvidersCmd()
+	return func() tea.Msg {
+		mode, ok := <-m.themeModeChanges
+		return themeConfigChangedMsg{mode: mode, ok: ok}
+	}
+}
+
+func (m Model) scheduleThemeDetectionCmd() tea.Cmd {
+	generation := m.themeDetectionGeneration
+	return tea.Tick(themeDetectionInterval, func(time.Time) tea.Msg {
+		return themeDetectionTickMsg{generation: generation}
+	})
+}
+
+func (m *Model) applyThemeMode(mode core.ThemeMode) tea.Cmd {
+	previousMode := m.themeMode
+	m.themeMode = mode
+	if previousMode != m.themeMode && m.themeMode == core.ThemeModeAuto {
+		m.themeDetectionGeneration++
+	}
+	appearance := core.ResolveThemeAppearance(m.themeMode, m.systemTheme, m.themeAppearance)
+	if m.applyThemeAppearance(appearance) {
+		m.syncReviewViewport()
+	}
+	cmds := []tea.Cmd{m.watchThemeConfigCmd()}
+	if m.themeMode == core.ThemeModeAuto {
+		cmds = append(cmds, tea.RequestBackgroundColor)
+		if previousMode != core.ThemeModeAuto {
+			cmds = append(cmds, m.scheduleThemeDetectionCmd())
+		}
+	}
+	return tea.Batch(cmds...)
+}
+
+func (m *Model) applySystemThemePreference(preference core.SystemThemePreference) bool {
+	if m.themeMode != core.ThemeModeAuto {
+		return false
+	}
+	m.systemTheme = preference
+	appearance := core.ResolveThemeAppearance(m.themeMode, m.systemTheme, m.themeAppearance)
+	changed := m.applyThemeAppearance(appearance)
+	if changed {
+		m.syncReviewViewport()
+	}
+	return changed
+}
+
+func (m *Model) applyThemeAppearance(appearance core.ThemeAppearance) bool {
+	if appearance != core.ThemeAppearanceLight {
+		appearance = core.ThemeAppearanceDark
+	}
+	modelChanged := m.themeAppearance != appearance
+	themeChanged := theme.ApplyAppearance(appearance)
+	m.themeAppearance = appearance
+	if !modelChanged && !themeChanged {
+		return false
+	}
+	if m.reviewLineCache != nil {
+		m.reviewLineCache.Clear()
+	}
+	if m.markdownRenderer != nil {
+		m.markdownRenderer.Clear()
+	}
+	return true
+}
+
+func (m Model) Init() tea.Cmd {
+	cmds := []tea.Cmd{m.watchThemeConfigCmd()}
+	if m.themeMode == core.ThemeModeAuto {
+		cmds = append(cmds, tea.RequestBackgroundColor, m.scheduleThemeDetectionCmd())
+	}
+	if m.activeProvider != nil {
+		cmds = append(cmds, m.startActiveProviderCmd())
+	} else if len(m.reviewProviders) > 0 {
+		cmds = append(cmds, m.loadReviewProvidersCmd())
+	}
+	return tea.Batch(cmds...)
 }
 
 func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	switch msg := msg.(type) {
+	case themeConfigChangedMsg:
+		if !msg.ok {
+			m.themeModeChanges = nil
+			return m, nil
+		}
+		return m, m.applyThemeMode(msg.mode)
+	case tea.BackgroundColorMsg:
+		m.applySystemThemePreference(core.SystemThemePreferenceFromDarkBackground(msg.IsDark()))
+		return m, nil
+	case themeDetectionTickMsg:
+		if m.themeMode != core.ThemeModeAuto || msg.generation != m.themeDetectionGeneration {
+			return m, nil
+		}
+		return m, tea.Batch(tea.RequestBackgroundColor, m.scheduleThemeDetectionCmd())
 	case reviewLoadedMsg:
 		m.loading = false
 		m.loadError = ""
@@ -497,6 +623,7 @@ func (m Model) unpublishedDraftCommentCount() int {
 }
 
 func (m Model) View() tea.View {
+	m.applyThemeAppearance(m.themeAppearance)
 	review := m.reviewViewport.View(m.reviewVisualState())
 	if m.loading {
 		review = theme.MutedStyle.Render("Loading diff…") + "\n" + review
@@ -540,6 +667,7 @@ func (m Model) View() tea.View {
 	view := tea.NewView(content)
 	view.AltScreen = true
 	view.MouseMode = tea.MouseModeCellMotion
+	view.BackgroundColor = lipgloss.Color(theme.CurrentPalette().ColorBackground)
 	if m.commentEditor != nil {
 		view.KeyboardEnhancements.ReportAllKeysAsEscapeCodes = true
 		view.KeyboardEnhancements.ReportAssociatedText = true

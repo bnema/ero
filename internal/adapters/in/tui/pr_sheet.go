@@ -110,21 +110,21 @@ func (m Model) providerOverviewLines(overview *core.ProviderOverview) []string {
 
 	if strings.TrimSpace(overview.Body) != "" {
 		lines = append(lines, "Body", "")
-		lines = append(lines, renderPRSheetMarkdown(m.markdownRenderer, overview.Body, contentWidth)...)
+		lines = append(lines, m.renderPRSheetMarkdown(overview.Body, contentWidth)...)
 		lines = append(lines, "")
 	}
 
 	lines = append(lines, "Issue comments: "+strconv.Itoa(len(overview.Comments)))
 	for _, comment := range overview.Comments {
 		lines = append(lines, "", commentHeader(comment.Author, comment.CreatedAt))
-		lines = append(lines, renderPRSheetMarkdown(m.markdownRenderer, comment.Body, contentWidth)...)
+		lines = append(lines, m.renderPRSheetMarkdown(comment.Body, contentWidth)...)
 	}
 
 	lines = append(lines, "", "Review summaries: "+strconv.Itoa(len(overview.Reviews)))
 	for _, review := range overview.Reviews {
 		lines = append(lines, "", reviewSummaryHeader(review))
 		if strings.TrimSpace(review.Body) != "" {
-			lines = append(lines, renderPRSheetMarkdown(m.markdownRenderer, review.Body, contentWidth)...)
+			lines = append(lines, m.renderPRSheetMarkdown(review.Body, contentWidth)...)
 		}
 	}
 	return trimTrailingBlankLines(lines)
@@ -134,8 +134,8 @@ func (m Model) prSheetLineCount() int {
 	return len(m.prSheetLines())
 }
 
-func renderPRSheetMarkdown(renderer *MarkdownRenderer, markdown string, width int) []string {
-	rendered := sanitizeRenderedMarkdown(renderer.Render(markdown, width, MarkdownThemeDark))
+func (m Model) renderPRSheetMarkdown(markdown string, width int) []string {
+	rendered := sanitizeRenderedMarkdown(m.markdownRenderer.Render(markdown, width, markdownThemeForAppearance(m.themeAppearance)))
 	if strings.TrimSpace(safeMarkdownFallback(rendered)) == "" {
 		return []string{"(empty)"}
 	}

@@ -10,14 +10,24 @@ import (
 	"ero/internal/core"
 )
 
-type StartupPrompt struct{}
+type StartupPrompt struct {
+	appearance core.ThemeAppearance
+}
 
 func NewStartupPrompt() StartupPrompt {
-	return StartupPrompt{}
+	return StartupPrompt{appearance: core.ThemeAppearanceDark}
+}
+
+func (p StartupPrompt) WithAppearance(appearance core.ThemeAppearance) StartupPrompt {
+	if appearance != core.ThemeAppearanceLight {
+		appearance = core.ThemeAppearanceDark
+	}
+	p.appearance = appearance
+	return p
 }
 
 func (p StartupPrompt) PromptLocalChangeMode() (core.DiffMode, error) {
-	model := newStartupPromptModel()
+	model := newStartupPromptModel(p.appearance)
 	result, err := tea.NewProgram(model).Run()
 	if err != nil {
 		return "", err
@@ -40,13 +50,22 @@ type startupPromptOption struct {
 }
 
 type startupPromptModel struct {
-	options   []startupPromptOption
-	selected  int
-	cancelled bool
+	options    []startupPromptOption
+	selected   int
+	cancelled  bool
+	appearance core.ThemeAppearance
 }
 
-func newStartupPromptModel() startupPromptModel {
+func newStartupPromptModel(appearances ...core.ThemeAppearance) startupPromptModel {
+	appearance := core.ThemeAppearanceDark
+	if len(appearances) > 0 {
+		appearance = appearances[0]
+	}
+	if appearance != core.ThemeAppearanceLight {
+		appearance = core.ThemeAppearanceDark
+	}
 	return startupPromptModel{
+		appearance: appearance,
 		options: []startupPromptOption{
 			{mode: core.DiffModeStaged, key: "s", label: "Staged changes", description: "What will be included in your next commit"},
 			{mode: core.DiffModeWorking, key: "u", label: "Unstaged/untracked changes", description: "Worktree changes not yet staged, including new files"},
@@ -92,21 +111,22 @@ func (m startupPromptModel) shortcutIndex(key string) (int, bool) {
 }
 
 func (m startupPromptModel) View() tea.View {
-	title := lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("212")).Render("Mixed local changes detected")
-	subtitle := theme.MutedStyle.Render("Choose the diff scope to review")
+	styles := theme.StylesForAppearance(m.appearance)
+	title := lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color(styles.Palette.ColorFunction)).Render("Mixed local changes detected")
+	subtitle := styles.MutedStyle.Render("Choose the diff scope to review")
 	lines := []string{title, subtitle, ""}
 	for i, option := range m.options {
 		cursor := "  "
 		labelStyle := lipgloss.NewStyle().Bold(false)
 		if i == m.selected {
 			cursor = "▸ "
-			labelStyle = labelStyle.Bold(true).Foreground(lipgloss.Color("86"))
+			labelStyle = labelStyle.Bold(true).Foreground(lipgloss.Color(styles.Palette.AddedMarkerFg))
 		}
-		shortcut := theme.MutedStyle.Render("(" + option.key + ")")
+		shortcut := styles.MutedStyle.Render("(" + option.key + ")")
 		lines = append(lines, cursor+labelStyle.Render(option.label)+" "+shortcut)
-		lines = append(lines, "    "+theme.MutedStyle.Render(option.description))
+		lines = append(lines, "    "+styles.MutedStyle.Render(option.description))
 	}
-	lines = append(lines, "", theme.MutedStyle.Render("↑/↓ move • "+enterKeyLabel()+" select • q quit"))
+	lines = append(lines, "", styles.MutedStyle.Render("↑/↓ move • "+enterKeyLabel()+" select • q quit"))
 	return tea.NewView(lipgloss.JoinVertical(lipgloss.Left, lines...))
 }
 

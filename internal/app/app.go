@@ -12,6 +12,7 @@ import (
 	"github.com/spf13/viper"
 
 	"ero/internal/adapters/in/cli"
+	"ero/internal/adapters/in/systemtheme"
 	"ero/internal/adapters/in/terminal"
 	"ero/internal/adapters/in/tui"
 	clipboardadapter "ero/internal/adapters/out/clipboard"
@@ -32,6 +33,11 @@ type startupPrompt interface {
 	PromptLocalChangeMode() (core.DiffMode, error)
 }
 
+type themedStartupPrompt interface {
+	startupPrompt
+	WithAppearance(core.ThemeAppearance) tui.StartupPrompt
+}
+
 type tuiRunner interface {
 	Run(model tea.Model) error
 }
@@ -48,7 +54,7 @@ func New() (*App, error) {
 	reviewLoader := core.NewReviewLoader(repositoryLoader, repositoryLoader, syntaxTokenizer, repositoryLoader)
 	runner := tui.NewRunner()
 	clipboardWriter := clipboardadapter.NewSystemWriter()
-	return newAppWithClipboard(cfg, reviewLoader, runner, repositoryLoader, tui.NewStartupPrompt(), terminal.IsInteractive, clipboardWriter)
+	return newAppWithClipboard(cfg, reviewLoader, runner, repositoryLoader, tui.NewStartupPrompt(), terminal.IsInteractive, clipboardWriter, systemtheme.PortalReader{})
 }
 
 func newApp(cfg *viper.Viper, loader reviewLoader, runner tuiRunner) (*App, error) {
@@ -56,10 +62,10 @@ func newApp(cfg *viper.Viper, loader reviewLoader, runner tuiRunner) (*App, erro
 }
 
 func newAppWithStartup(cfg *viper.Viper, loader reviewLoader, runner tuiRunner, startupReader ports.StartupStateReader[core.StartupState], prompt startupPrompt, isInteractive func() bool) (*App, error) {
-	return newAppWithClipboard(cfg, loader, runner, startupReader, prompt, isInteractive, nil)
+	return newAppWithClipboard(cfg, loader, runner, startupReader, prompt, isInteractive, nil, nil)
 }
 
-func newAppWithClipboard(cfg *viper.Viper, loader reviewLoader, runner tuiRunner, startupReader ports.StartupStateReader[core.StartupState], prompt startupPrompt, isInteractive func() bool, clipboardWriter ports.ClipboardWriter) (*App, error) {
+func newAppWithClipboard(cfg *viper.Viper, loader reviewLoader, runner tuiRunner, startupReader ports.StartupStateReader[core.StartupState], prompt startupPrompt, isInteractive func() bool, clipboardWriter ports.ClipboardWriter, systemThemeReader ports.SystemThemeReader) (*App, error) {
 	if cfg == nil {
 		cfg = viper.New()
 	}
@@ -71,6 +77,10 @@ func newAppWithClipboard(cfg *viper.Viper, loader reviewLoader, runner tuiRunner
 	}
 
 	root, err := cli.NewRootCommand(cfg, func() error {
+		if err := loadRuntimeConfig(cfg); err != nil {
+			return fmt.Errorf("load config: %w", err)
+		}
+		themeModeChanges := watchThemeConfigChanges(cfg)
 		log, logPath, cleanupLogs, err := logging.Init(logging.Config{Level: cfg.GetString("log-level"), Path: cfg.GetString("log-file")})
 		if err != nil {
 			return fmt.Errorf("initialize logging: %w", err)
@@ -78,6 +88,18 @@ func newAppWithClipboard(cfg *viper.Viper, loader reviewLoader, runner tuiRunner
 		defer cleanupLogs()
 		ctx := zerowrap.WithCtx(context.Background(), log)
 		log.Info().Str("log_path", logPath).Msg("ero started")
+
+		initialThemeMode := core.ParseThemeMode(cfg.GetString("theme"))
+		initialSystemTheme := core.SystemThemeUnknown
+		if initialThemeMode == core.ThemeModeAuto && systemThemeReader != nil {
+			preference, err := systemThemeReader.CurrentPreference(ctx)
+			if err == nil {
+				initialSystemTheme = preference
+			} else {
+				log.Debug().Err(err).Msg("system theme detection failed")
+			}
+		}
+		initialThemeAppearance := core.ResolveThemeAppearance(initialThemeMode, initialSystemTheme, core.ThemeAppearanceLight)
 
 		initialRequest := core.ReviewRequest{
 			RepoPath:     cfg.GetString("repo-path"),
@@ -89,7 +111,11 @@ func newAppWithClipboard(cfg *viper.Viper, loader reviewLoader, runner tuiRunner
 			UpstreamRef:  cfg.GetString("upstream-ref"),
 		}
 		if cfg.GetBool("startup-detect") {
-			request, err := resolveStartupRequest(initialRequest, startupReader, prompt, isInteractive)
+			startupPrompt := prompt
+			if themed, ok := prompt.(themedStartupPrompt); ok {
+				startupPrompt = themed.WithAppearance(initialThemeAppearance)
+			}
+			request, err := resolveStartupRequest(initialRequest, startupReader, startupPrompt, isInteractive)
 			if err != nil {
 				return err
 			}
@@ -115,7 +141,11 @@ func newAppWithClipboard(cfg *viper.Viper, loader reviewLoader, runner tuiRunner
 		}
 		reviewContext := buildReviewContext(initialRequest, files, metadata, version)
 		var compatibilityProviders []ports.ReviewProviderClient
-		err = runner.Run(tui.NewModelWithActiveProviderContext(ctx, files, terminal.NewCapabilities(), loader, initialRequest, clipboardWriter, reviewContext, activeProvider, compatibilityProviders))
+		err = runner.Run(tui.NewModelWithActiveProviderContextConfig(ctx, files, terminal.NewCapabilities(), loader, initialRequest, clipboardWriter, reviewContext, activeProvider, compatibilityProviders, tui.ModelConfig{
+			ThemeMode:        initialThemeMode,
+			SystemTheme:      initialSystemTheme,
+			ThemeModeChanges: themeModeChanges,
+		}))
 		if err != nil {
 			log.Error().Err(err).Msg("tui exited with error")
 			return err
