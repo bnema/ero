@@ -9,6 +9,7 @@ import (
 )
 
 func TestApplyAppearanceKeepsDarkPaletteAsDefault(t *testing.T) {
+	ApplyAppearance(core.ThemeAppearanceDark)
 	changed := ApplyAppearance(core.ThemeAppearanceDark)
 	t.Cleanup(func() { ApplyAppearance(core.ThemeAppearanceDark) })
 

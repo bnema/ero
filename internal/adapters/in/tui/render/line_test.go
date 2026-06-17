@@ -71,8 +71,9 @@ func TestReviewLine(t *testing.T) {
 }
 
 func TestReviewLineUsesLightChromaStyleWhenThemeIsLight(t *testing.T) {
+	originalAppearance := theme.CurrentAppearance()
 	theme.ApplyAppearance(core.ThemeAppearanceLight)
-	t.Cleanup(func() { theme.ApplyAppearance(core.ThemeAppearanceDark) })
+	t.Cleanup(func() { theme.ApplyAppearance(originalAppearance) })
 
 	rendered := ReviewLine(core.ReviewLine{
 		NewLineNumber: 5,

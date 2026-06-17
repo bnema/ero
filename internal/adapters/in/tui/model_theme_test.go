@@ -50,7 +50,11 @@ func TestModelIgnoresStaleAutoThemeDetectionTicks(t *testing.T) {
 	model := NewModelWithActiveProviderContextConfig(context.Background(), nil, nil, nil, core.ReviewRequest{}, nil, core.ReviewContext{}, nil, nil, ModelConfig{ThemeMode: core.ThemeModeAuto})
 	initialGeneration := model.themeDetectionGeneration
 
-	updated, _ := model.Update(themeConfigChangedMsg{mode: core.ThemeModeDark, ok: true})
+	updated, _ := model.Update(themeConfigChangedMsg{mode: core.ThemeModeAuto, ok: true})
+	model = updated.(Model)
+	assert.Equal(t, initialGeneration, model.themeDetectionGeneration)
+
+	updated, _ = model.Update(themeConfigChangedMsg{mode: core.ThemeModeDark, ok: true})
 	model = updated.(Model)
 	updated, _ = model.Update(themeConfigChangedMsg{mode: core.ThemeModeAuto, ok: true})
 	model = updated.(Model)

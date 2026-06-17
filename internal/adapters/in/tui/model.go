@@ -265,7 +265,7 @@ func (m Model) scheduleThemeDetectionCmd() tea.Cmd {
 func (m *Model) applyThemeMode(mode core.ThemeMode) tea.Cmd {
 	previousMode := m.themeMode
 	m.themeMode = mode
-	if previousMode == core.ThemeModeAuto || m.themeMode == core.ThemeModeAuto {
+	if previousMode != m.themeMode && m.themeMode == core.ThemeModeAuto {
 		m.themeDetectionGeneration++
 	}
 	appearance := core.ResolveThemeAppearance(m.themeMode, m.systemTheme, m.themeAppearance)
