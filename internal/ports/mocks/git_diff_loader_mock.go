@@ -14,10 +14,19 @@ func NewMockGitDiffLoader(t interface {
 	mock.TestingT
 	Cleanup(func())
 }) *MockGitDiffLoader {
+	if helper, ok := t.(interface{ Helper() }); ok {
+		helper.Helper()
+	}
+
 	mock := &MockGitDiffLoader{}
 	mock.Mock.Test(t)
 
-	t.Cleanup(func() { mock.AssertExpectations(t) })
+	t.Cleanup(func() {
+		if helper, ok := t.(interface{ Helper() }); ok {
+			helper.Helper()
+		}
+		mock.AssertExpectations(t)
+	})
 
 	return mock
 }
@@ -69,7 +78,7 @@ type MockGitDiffLoader_LoadBranchDiff_Call struct {
 // LoadBranchDiff is a helper method to define mock.On call
 //   - repoPath string
 //   - baseBranch string
-func (_e *MockGitDiffLoader_Expecter) LoadBranchDiff(repoPath interface{}, baseBranch interface{}) *MockGitDiffLoader_LoadBranchDiff_Call {
+func (_e *MockGitDiffLoader_Expecter) LoadBranchDiff(repoPath any, baseBranch any) *MockGitDiffLoader_LoadBranchDiff_Call {
 	return &MockGitDiffLoader_LoadBranchDiff_Call{Call: _e.mock.On("LoadBranchDiff", repoPath, baseBranch)}
 }
 
@@ -135,7 +144,7 @@ type MockGitDiffLoader_LoadCommitDiff_Call struct {
 // LoadCommitDiff is a helper method to define mock.On call
 //   - repoPath string
 //   - revision string
-func (_e *MockGitDiffLoader_Expecter) LoadCommitDiff(repoPath interface{}, revision interface{}) *MockGitDiffLoader_LoadCommitDiff_Call {
+func (_e *MockGitDiffLoader_Expecter) LoadCommitDiff(repoPath any, revision any) *MockGitDiffLoader_LoadCommitDiff_Call {
 	return &MockGitDiffLoader_LoadCommitDiff_Call{Call: _e.mock.On("LoadCommitDiff", repoPath, revision)}
 }
 
@@ -200,7 +209,7 @@ type MockGitDiffLoader_LoadLocalDiff_Call struct {
 
 // LoadLocalDiff is a helper method to define mock.On call
 //   - repoPath string
-func (_e *MockGitDiffLoader_Expecter) LoadLocalDiff(repoPath interface{}) *MockGitDiffLoader_LoadLocalDiff_Call {
+func (_e *MockGitDiffLoader_Expecter) LoadLocalDiff(repoPath any) *MockGitDiffLoader_LoadLocalDiff_Call {
 	return &MockGitDiffLoader_LoadLocalDiff_Call{Call: _e.mock.On("LoadLocalDiff", repoPath)}
 }
 
@@ -262,7 +271,7 @@ type MockGitDiffLoader_LoadRangeDiff_Call struct {
 //   - repoPath string
 //   - baseRevision string
 //   - headRevision string
-func (_e *MockGitDiffLoader_Expecter) LoadRangeDiff(repoPath interface{}, baseRevision interface{}, headRevision interface{}) *MockGitDiffLoader_LoadRangeDiff_Call {
+func (_e *MockGitDiffLoader_Expecter) LoadRangeDiff(repoPath any, baseRevision any, headRevision any) *MockGitDiffLoader_LoadRangeDiff_Call {
 	return &MockGitDiffLoader_LoadRangeDiff_Call{Call: _e.mock.On("LoadRangeDiff", repoPath, baseRevision, headRevision)}
 }
 
@@ -332,7 +341,7 @@ type MockGitDiffLoader_LoadStagedDiff_Call struct {
 
 // LoadStagedDiff is a helper method to define mock.On call
 //   - repoPath string
-func (_e *MockGitDiffLoader_Expecter) LoadStagedDiff(repoPath interface{}) *MockGitDiffLoader_LoadStagedDiff_Call {
+func (_e *MockGitDiffLoader_Expecter) LoadStagedDiff(repoPath any) *MockGitDiffLoader_LoadStagedDiff_Call {
 	return &MockGitDiffLoader_LoadStagedDiff_Call{Call: _e.mock.On("LoadStagedDiff", repoPath)}
 }
 
@@ -393,7 +402,7 @@ type MockGitDiffLoader_LoadUpstreamDiff_Call struct {
 // LoadUpstreamDiff is a helper method to define mock.On call
 //   - repoPath string
 //   - upstreamRef string
-func (_e *MockGitDiffLoader_Expecter) LoadUpstreamDiff(repoPath interface{}, upstreamRef interface{}) *MockGitDiffLoader_LoadUpstreamDiff_Call {
+func (_e *MockGitDiffLoader_Expecter) LoadUpstreamDiff(repoPath any, upstreamRef any) *MockGitDiffLoader_LoadUpstreamDiff_Call {
 	return &MockGitDiffLoader_LoadUpstreamDiff_Call{Call: _e.mock.On("LoadUpstreamDiff", repoPath, upstreamRef)}
 }
 
@@ -458,7 +467,7 @@ type MockGitDiffLoader_LoadWorkingTreeDiff_Call struct {
 
 // LoadWorkingTreeDiff is a helper method to define mock.On call
 //   - repoPath string
-func (_e *MockGitDiffLoader_Expecter) LoadWorkingTreeDiff(repoPath interface{}) *MockGitDiffLoader_LoadWorkingTreeDiff_Call {
+func (_e *MockGitDiffLoader_Expecter) LoadWorkingTreeDiff(repoPath any) *MockGitDiffLoader_LoadWorkingTreeDiff_Call {
 	return &MockGitDiffLoader_LoadWorkingTreeDiff_Call{Call: _e.mock.On("LoadWorkingTreeDiff", repoPath)}
 }
 

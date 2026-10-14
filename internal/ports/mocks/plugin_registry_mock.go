@@ -17,10 +17,19 @@ func NewMockPluginRegistry(t interface {
 	mock.TestingT
 	Cleanup(func())
 }) *MockPluginRegistry {
+	if helper, ok := t.(interface{ Helper() }); ok {
+		helper.Helper()
+	}
+
 	mock := &MockPluginRegistry{}
 	mock.Mock.Test(t)
 
-	t.Cleanup(func() { mock.AssertExpectations(t) })
+	t.Cleanup(func() {
+		if helper, ok := t.(interface{ Helper() }); ok {
+			helper.Helper()
+		}
+		mock.AssertExpectations(t)
+	})
 
 	return mock
 }
@@ -73,7 +82,7 @@ type MockPluginRegistry_InstalledPlugins_Call struct {
 
 // InstalledPlugins is a helper method to define mock.On call
 //   - ctx context.Context
-func (_e *MockPluginRegistry_Expecter) InstalledPlugins(ctx interface{}) *MockPluginRegistry_InstalledPlugins_Call {
+func (_e *MockPluginRegistry_Expecter) InstalledPlugins(ctx any) *MockPluginRegistry_InstalledPlugins_Call {
 	return &MockPluginRegistry_InstalledPlugins_Call{Call: _e.mock.On("InstalledPlugins", ctx)}
 }
 

@@ -17,10 +17,19 @@ func NewMockReviewProviderClientFactory(t interface {
 	mock.TestingT
 	Cleanup(func())
 }) *MockReviewProviderClientFactory {
+	if helper, ok := t.(interface{ Helper() }); ok {
+		helper.Helper()
+	}
+
 	mock := &MockReviewProviderClientFactory{}
 	mock.Mock.Test(t)
 
-	t.Cleanup(func() { mock.AssertExpectations(t) })
+	t.Cleanup(func() {
+		if helper, ok := t.(interface{ Helper() }); ok {
+			helper.Helper()
+		}
+		mock.AssertExpectations(t)
+	})
 
 	return mock
 }
@@ -74,7 +83,7 @@ type MockReviewProviderClientFactory_CreateReviewProviderClient_Call struct {
 // CreateReviewProviderClient is a helper method to define mock.On call
 //   - ctx context.Context
 //   - descriptor ports.ReviewProviderDescriptor
-func (_e *MockReviewProviderClientFactory_Expecter) CreateReviewProviderClient(ctx interface{}, descriptor interface{}) *MockReviewProviderClientFactory_CreateReviewProviderClient_Call {
+func (_e *MockReviewProviderClientFactory_Expecter) CreateReviewProviderClient(ctx any, descriptor any) *MockReviewProviderClientFactory_CreateReviewProviderClient_Call {
 	return &MockReviewProviderClientFactory_CreateReviewProviderClient_Call{Call: _e.mock.On("CreateReviewProviderClient", ctx, descriptor)}
 }
 

@@ -14,10 +14,19 @@ func NewMockFileContentReader(t interface {
 	mock.TestingT
 	Cleanup(func())
 }) *MockFileContentReader {
+	if helper, ok := t.(interface{ Helper() }); ok {
+		helper.Helper()
+	}
+
 	mock := &MockFileContentReader{}
 	mock.Mock.Test(t)
 
-	t.Cleanup(func() { mock.AssertExpectations(t) })
+	t.Cleanup(func() {
+		if helper, ok := t.(interface{ Helper() }); ok {
+			helper.Helper()
+		}
+		mock.AssertExpectations(t)
+	})
 
 	return mock
 }
@@ -71,7 +80,7 @@ type MockFileContentReader_ReadFileLines_Call struct {
 // ReadFileLines is a helper method to define mock.On call
 //   - repoPath string
 //   - path string
-func (_e *MockFileContentReader_Expecter) ReadFileLines(repoPath interface{}, path interface{}) *MockFileContentReader_ReadFileLines_Call {
+func (_e *MockFileContentReader_Expecter) ReadFileLines(repoPath any, path any) *MockFileContentReader_ReadFileLines_Call {
 	return &MockFileContentReader_ReadFileLines_Call{Call: _e.mock.On("ReadFileLines", repoPath, path)}
 }
 

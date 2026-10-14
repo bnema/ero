@@ -16,10 +16,19 @@ func NewMockClipboardWriter(t interface {
 	mock.TestingT
 	Cleanup(func())
 }) *MockClipboardWriter {
+	if helper, ok := t.(interface{ Helper() }); ok {
+		helper.Helper()
+	}
+
 	mock := &MockClipboardWriter{}
 	mock.Mock.Test(t)
 
-	t.Cleanup(func() { mock.AssertExpectations(t) })
+	t.Cleanup(func() {
+		if helper, ok := t.(interface{ Helper() }); ok {
+			helper.Helper()
+		}
+		mock.AssertExpectations(t)
+	})
 
 	return mock
 }
@@ -62,7 +71,7 @@ type MockClipboardWriter_WriteClipboard_Call struct {
 // WriteClipboard is a helper method to define mock.On call
 //   - ctx context.Context
 //   - text string
-func (_e *MockClipboardWriter_Expecter) WriteClipboard(ctx interface{}, text interface{}) *MockClipboardWriter_WriteClipboard_Call {
+func (_e *MockClipboardWriter_Expecter) WriteClipboard(ctx any, text any) *MockClipboardWriter_WriteClipboard_Call {
 	return &MockClipboardWriter_WriteClipboard_Call{Call: _e.mock.On("WriteClipboard", ctx, text)}
 }
 

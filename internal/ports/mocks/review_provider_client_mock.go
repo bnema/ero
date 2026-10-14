@@ -17,10 +17,19 @@ func NewMockReviewProviderClient(t interface {
 	mock.TestingT
 	Cleanup(func())
 }) *MockReviewProviderClient {
+	if helper, ok := t.(interface{ Helper() }); ok {
+		helper.Helper()
+	}
+
 	mock := &MockReviewProviderClient{}
 	mock.Mock.Test(t)
 
-	t.Cleanup(func() { mock.AssertExpectations(t) })
+	t.Cleanup(func() {
+		if helper, ok := t.(interface{ Helper() }); ok {
+			helper.Helper()
+		}
+		mock.AssertExpectations(t)
+	})
 
 	return mock
 }
@@ -116,7 +125,7 @@ type MockReviewProviderClient_DetectContext_Call struct {
 // DetectContext is a helper method to define mock.On call
 //   - ctx context.Context
 //   - review core.ReviewContext
-func (_e *MockReviewProviderClient_Expecter) DetectContext(ctx interface{}, review interface{}) *MockReviewProviderClient_DetectContext_Call {
+func (_e *MockReviewProviderClient_Expecter) DetectContext(ctx any, review any) *MockReviewProviderClient_DetectContext_Call {
 	return &MockReviewProviderClient_DetectContext_Call{Call: _e.mock.On("DetectContext", ctx, review)}
 }
 
@@ -181,7 +190,7 @@ type MockReviewProviderClient_Initialize_Call struct {
 
 // Initialize is a helper method to define mock.On call
 //   - ctx context.Context
-func (_e *MockReviewProviderClient_Expecter) Initialize(ctx interface{}) *MockReviewProviderClient_Initialize_Call {
+func (_e *MockReviewProviderClient_Expecter) Initialize(ctx any) *MockReviewProviderClient_Initialize_Call {
 	return &MockReviewProviderClient_Initialize_Call{Call: _e.mock.On("Initialize", ctx)}
 }
 
@@ -244,7 +253,7 @@ type MockReviewProviderClient_LoadRemoteThreads_Call struct {
 // LoadRemoteThreads is a helper method to define mock.On call
 //   - ctx context.Context
 //   - review core.ReviewContext
-func (_e *MockReviewProviderClient_Expecter) LoadRemoteThreads(ctx interface{}, review interface{}) *MockReviewProviderClient_LoadRemoteThreads_Call {
+func (_e *MockReviewProviderClient_Expecter) LoadRemoteThreads(ctx any, review any) *MockReviewProviderClient_LoadRemoteThreads_Call {
 	return &MockReviewProviderClient_LoadRemoteThreads_Call{Call: _e.mock.On("LoadRemoteThreads", ctx, review)}
 }
 
@@ -310,7 +319,7 @@ type MockReviewProviderClient_PublishReview_Call struct {
 // PublishReview is a helper method to define mock.On call
 //   - ctx context.Context
 //   - request core.PublishReviewRequest
-func (_e *MockReviewProviderClient_Expecter) PublishReview(ctx interface{}, request interface{}) *MockReviewProviderClient_PublishReview_Call {
+func (_e *MockReviewProviderClient_Expecter) PublishReview(ctx any, request any) *MockReviewProviderClient_PublishReview_Call {
 	return &MockReviewProviderClient_PublishReview_Call{Call: _e.mock.On("PublishReview", ctx, request)}
 }
 

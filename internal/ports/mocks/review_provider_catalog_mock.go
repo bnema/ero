@@ -17,10 +17,19 @@ func NewMockReviewProviderCatalog(t interface {
 	mock.TestingT
 	Cleanup(func())
 }) *MockReviewProviderCatalog {
+	if helper, ok := t.(interface{ Helper() }); ok {
+		helper.Helper()
+	}
+
 	mock := &MockReviewProviderCatalog{}
 	mock.Mock.Test(t)
 
-	t.Cleanup(func() { mock.AssertExpectations(t) })
+	t.Cleanup(func() {
+		if helper, ok := t.(interface{ Helper() }); ok {
+			helper.Helper()
+		}
+		mock.AssertExpectations(t)
+	})
 
 	return mock
 }
@@ -73,7 +82,7 @@ type MockReviewProviderCatalog_ListReviewProviderDescriptors_Call struct {
 
 // ListReviewProviderDescriptors is a helper method to define mock.On call
 //   - ctx context.Context
-func (_e *MockReviewProviderCatalog_Expecter) ListReviewProviderDescriptors(ctx interface{}) *MockReviewProviderCatalog_ListReviewProviderDescriptors_Call {
+func (_e *MockReviewProviderCatalog_Expecter) ListReviewProviderDescriptors(ctx any) *MockReviewProviderCatalog_ListReviewProviderDescriptors_Call {
 	return &MockReviewProviderCatalog_ListReviewProviderDescriptors_Call{Call: _e.mock.On("ListReviewProviderDescriptors", ctx)}
 }
 

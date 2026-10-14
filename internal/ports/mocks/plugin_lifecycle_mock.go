@@ -17,10 +17,19 @@ func NewMockPluginLifecycle(t interface {
 	mock.TestingT
 	Cleanup(func())
 }) *MockPluginLifecycle {
+	if helper, ok := t.(interface{ Helper() }); ok {
+		helper.Helper()
+	}
+
 	mock := &MockPluginLifecycle{}
 	mock.Mock.Test(t)
 
-	t.Cleanup(func() { mock.AssertExpectations(t) })
+	t.Cleanup(func() {
+		if helper, ok := t.(interface{ Helper() }); ok {
+			helper.Helper()
+		}
+		mock.AssertExpectations(t)
+	})
 
 	return mock
 }
@@ -72,7 +81,7 @@ type MockPluginLifecycle_Install_Call struct {
 // Install is a helper method to define mock.On call
 //   - ctx context.Context
 //   - source string
-func (_e *MockPluginLifecycle_Expecter) Install(ctx interface{}, source interface{}) *MockPluginLifecycle_Install_Call {
+func (_e *MockPluginLifecycle_Expecter) Install(ctx any, source any) *MockPluginLifecycle_Install_Call {
 	return &MockPluginLifecycle_Install_Call{Call: _e.mock.On("Install", ctx, source)}
 }
 
@@ -139,7 +148,7 @@ type MockPluginLifecycle_List_Call struct {
 
 // List is a helper method to define mock.On call
 //   - ctx context.Context
-func (_e *MockPluginLifecycle_Expecter) List(ctx interface{}) *MockPluginLifecycle_List_Call {
+func (_e *MockPluginLifecycle_Expecter) List(ctx any) *MockPluginLifecycle_List_Call {
 	return &MockPluginLifecycle_List_Call{Call: _e.mock.On("List", ctx)}
 }
 
@@ -200,7 +209,7 @@ type MockPluginLifecycle_Remove_Call struct {
 // Remove is a helper method to define mock.On call
 //   - ctx context.Context
 //   - nameOrSource string
-func (_e *MockPluginLifecycle_Expecter) Remove(ctx interface{}, nameOrSource interface{}) *MockPluginLifecycle_Remove_Call {
+func (_e *MockPluginLifecycle_Expecter) Remove(ctx any, nameOrSource any) *MockPluginLifecycle_Remove_Call {
 	return &MockPluginLifecycle_Remove_Call{Call: _e.mock.On("Remove", ctx, nameOrSource)}
 }
 
@@ -268,7 +277,7 @@ type MockPluginLifecycle_Update_Call struct {
 // Update is a helper method to define mock.On call
 //   - ctx context.Context
 //   - source string
-func (_e *MockPluginLifecycle_Expecter) Update(ctx interface{}, source interface{}) *MockPluginLifecycle_Update_Call {
+func (_e *MockPluginLifecycle_Expecter) Update(ctx any, source any) *MockPluginLifecycle_Update_Call {
 	return &MockPluginLifecycle_Update_Call{Call: _e.mock.On("Update", ctx, source)}
 }
 

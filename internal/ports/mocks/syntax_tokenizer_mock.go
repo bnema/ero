@@ -16,10 +16,19 @@ func NewMockSyntaxTokenizer(t interface {
 	mock.TestingT
 	Cleanup(func())
 }) *MockSyntaxTokenizer {
+	if helper, ok := t.(interface{ Helper() }); ok {
+		helper.Helper()
+	}
+
 	mock := &MockSyntaxTokenizer{}
 	mock.Mock.Test(t)
 
-	t.Cleanup(func() { mock.AssertExpectations(t) })
+	t.Cleanup(func() {
+		if helper, ok := t.(interface{ Helper() }); ok {
+			helper.Helper()
+		}
+		mock.AssertExpectations(t)
+	})
 
 	return mock
 }
@@ -61,7 +70,7 @@ type MockSyntaxTokenizer_Language_Call struct {
 
 // Language is a helper method to define mock.On call
 //   - filename string
-func (_e *MockSyntaxTokenizer_Expecter) Language(filename interface{}) *MockSyntaxTokenizer_Language_Call {
+func (_e *MockSyntaxTokenizer_Expecter) Language(filename any) *MockSyntaxTokenizer_Language_Call {
 	return &MockSyntaxTokenizer_Language_Call{Call: _e.mock.On("Language", filename)}
 }
 
@@ -124,7 +133,7 @@ type MockSyntaxTokenizer_Tokenize_Call struct {
 // Tokenize is a helper method to define mock.On call
 //   - filename string
 //   - lines []string
-func (_e *MockSyntaxTokenizer_Expecter) Tokenize(filename interface{}, lines interface{}) *MockSyntaxTokenizer_Tokenize_Call {
+func (_e *MockSyntaxTokenizer_Expecter) Tokenize(filename any, lines any) *MockSyntaxTokenizer_Tokenize_Call {
 	return &MockSyntaxTokenizer_Tokenize_Call{Call: _e.mock.On("Tokenize", filename, lines)}
 }
 
@@ -146,8 +155,8 @@ func (_c *MockSyntaxTokenizer_Tokenize_Call) Run(run func(filename string, lines
 	return _c
 }
 
-func (_c *MockSyntaxTokenizer_Tokenize_Call) Return(vss [][]ports.SyntaxToken, err error) *MockSyntaxTokenizer_Tokenize_Call {
-	_c.Call.Return(vss, err)
+func (_c *MockSyntaxTokenizer_Tokenize_Call) Return(syntaxTokenss [][]ports.SyntaxToken, err error) *MockSyntaxTokenizer_Tokenize_Call {
+	_c.Call.Return(syntaxTokenss, err)
 	return _c
 }
 
