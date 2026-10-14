@@ -59,10 +59,8 @@ func applySyntaxHighlighting(content string, tokens []core.SyntaxToken, baseStyl
 		if start > lastEnd {
 			result.WriteString(baseStyle.Render(string(runes[lastEnd:start])))
 		}
-		tokenStyle := styleForSyntaxToken(token, chroma)
-		if background != nil {
-			tokenStyle = tokenStyle.Background(background)
-		}
+		// GetBackground never returns nil (an unset color is lipgloss.NoColor).
+		tokenStyle := styleForSyntaxToken(token, chroma).Background(background)
 		result.WriteString(tokenStyle.Render(string(runes[start:end])))
 		lastEnd = end
 	}

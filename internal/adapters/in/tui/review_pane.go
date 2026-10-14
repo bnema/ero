@@ -160,12 +160,7 @@ func (p ReviewPane) renderRow(row presenter.ReviewRow, rowIndex int, state rende
 	gutterWidth := lipgloss.Width(gutter)
 	contentWidth := max(p.width-gutterWidth, 0)
 	content := p.truncateContent(p.renderer.Render(row, rowIndex, state), gutterWidth)
-	style := p.renderer.Style(rowIndex, state)
-	if style.GetBackground() != nil {
-		content = style.Width(contentWidth).Render(content)
-	} else {
-		content = style.Render(content)
-	}
+	content = p.renderer.Style(rowIndex, state).Width(contentWidth).Render(content)
 	return gutter + content
 }
 
