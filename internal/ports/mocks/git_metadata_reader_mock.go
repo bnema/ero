@@ -16,10 +16,19 @@ func NewMockGitMetadataReader(t interface {
 	mock.TestingT
 	Cleanup(func())
 }) *MockGitMetadataReader {
+	if helper, ok := t.(interface{ Helper() }); ok {
+		helper.Helper()
+	}
+
 	mock := &MockGitMetadataReader{}
 	mock.Mock.Test(t)
 
-	t.Cleanup(func() { mock.AssertExpectations(t) })
+	t.Cleanup(func() {
+		if helper, ok := t.(interface{ Helper() }); ok {
+			helper.Helper()
+		}
+		mock.AssertExpectations(t)
+	})
 
 	return mock
 }
@@ -70,7 +79,7 @@ type MockGitMetadataReader_CurrentBranch_Call struct {
 
 // CurrentBranch is a helper method to define mock.On call
 //   - repoPath string
-func (_e *MockGitMetadataReader_Expecter) CurrentBranch(repoPath interface{}) *MockGitMetadataReader_CurrentBranch_Call {
+func (_e *MockGitMetadataReader_Expecter) CurrentBranch(repoPath any) *MockGitMetadataReader_CurrentBranch_Call {
 	return &MockGitMetadataReader_CurrentBranch_Call{Call: _e.mock.On("CurrentBranch", repoPath)}
 }
 
@@ -130,7 +139,7 @@ type MockGitMetadataReader_DefaultBranch_Call struct {
 
 // DefaultBranch is a helper method to define mock.On call
 //   - repoPath string
-func (_e *MockGitMetadataReader_Expecter) DefaultBranch(repoPath interface{}) *MockGitMetadataReader_DefaultBranch_Call {
+func (_e *MockGitMetadataReader_Expecter) DefaultBranch(repoPath any) *MockGitMetadataReader_DefaultBranch_Call {
 	return &MockGitMetadataReader_DefaultBranch_Call{Call: _e.mock.On("DefaultBranch", repoPath)}
 }
 
@@ -190,7 +199,7 @@ type MockGitMetadataReader_HeadSHA_Call struct {
 
 // HeadSHA is a helper method to define mock.On call
 //   - repoPath string
-func (_e *MockGitMetadataReader_Expecter) HeadSHA(repoPath interface{}) *MockGitMetadataReader_HeadSHA_Call {
+func (_e *MockGitMetadataReader_Expecter) HeadSHA(repoPath any) *MockGitMetadataReader_HeadSHA_Call {
 	return &MockGitMetadataReader_HeadSHA_Call{Call: _e.mock.On("HeadSHA", repoPath)}
 }
 
@@ -252,7 +261,7 @@ type MockGitMetadataReader_MergeBase_Call struct {
 //   - repoPath string
 //   - baseRef string
 //   - headRef string
-func (_e *MockGitMetadataReader_Expecter) MergeBase(repoPath interface{}, baseRef interface{}, headRef interface{}) *MockGitMetadataReader_MergeBase_Call {
+func (_e *MockGitMetadataReader_Expecter) MergeBase(repoPath any, baseRef any, headRef any) *MockGitMetadataReader_MergeBase_Call {
 	return &MockGitMetadataReader_MergeBase_Call{Call: _e.mock.On("MergeBase", repoPath, baseRef, headRef)}
 }
 
@@ -324,7 +333,7 @@ type MockGitMetadataReader_Remotes_Call struct {
 
 // Remotes is a helper method to define mock.On call
 //   - repoPath string
-func (_e *MockGitMetadataReader_Expecter) Remotes(repoPath interface{}) *MockGitMetadataReader_Remotes_Call {
+func (_e *MockGitMetadataReader_Expecter) Remotes(repoPath any) *MockGitMetadataReader_Remotes_Call {
 	return &MockGitMetadataReader_Remotes_Call{Call: _e.mock.On("Remotes", repoPath)}
 }
 
@@ -385,7 +394,7 @@ type MockGitMetadataReader_ResolveRevision_Call struct {
 // ResolveRevision is a helper method to define mock.On call
 //   - repoPath string
 //   - revision string
-func (_e *MockGitMetadataReader_Expecter) ResolveRevision(repoPath interface{}, revision interface{}) *MockGitMetadataReader_ResolveRevision_Call {
+func (_e *MockGitMetadataReader_Expecter) ResolveRevision(repoPath any, revision any) *MockGitMetadataReader_ResolveRevision_Call {
 	return &MockGitMetadataReader_ResolveRevision_Call{Call: _e.mock.On("ResolveRevision", repoPath, revision)}
 }
 
@@ -450,7 +459,7 @@ type MockGitMetadataReader_WorktreeRoot_Call struct {
 
 // WorktreeRoot is a helper method to define mock.On call
 //   - repoPath string
-func (_e *MockGitMetadataReader_Expecter) WorktreeRoot(repoPath interface{}) *MockGitMetadataReader_WorktreeRoot_Call {
+func (_e *MockGitMetadataReader_Expecter) WorktreeRoot(repoPath any) *MockGitMetadataReader_WorktreeRoot_Call {
 	return &MockGitMetadataReader_WorktreeRoot_Call{Call: _e.mock.On("WorktreeRoot", repoPath)}
 }
 

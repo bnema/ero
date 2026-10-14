@@ -14,10 +14,19 @@ func NewMockStartupStateReader[T any](t interface {
 	mock.TestingT
 	Cleanup(func())
 }) *MockStartupStateReader[T] {
+	if helper, ok := t.(interface{ Helper() }); ok {
+		helper.Helper()
+	}
+
 	mock := &MockStartupStateReader[T]{}
 	mock.Mock.Test(t)
 
-	t.Cleanup(func() { mock.AssertExpectations(t) })
+	t.Cleanup(func() {
+		if helper, ok := t.(interface{ Helper() }); ok {
+			helper.Helper()
+		}
+		mock.AssertExpectations(t)
+	})
 
 	return mock
 }
@@ -70,7 +79,7 @@ type MockStartupStateReader_ReadStartupState_Call[T any] struct {
 
 // ReadStartupState is a helper method to define mock.On call
 //   - repoPath string
-func (_e *MockStartupStateReader_Expecter[T]) ReadStartupState(repoPath interface{}) *MockStartupStateReader_ReadStartupState_Call[T] {
+func (_e *MockStartupStateReader_Expecter[T]) ReadStartupState(repoPath any) *MockStartupStateReader_ReadStartupState_Call[T] {
 	return &MockStartupStateReader_ReadStartupState_Call[T]{Call: _e.mock.On("ReadStartupState", repoPath)}
 }
 

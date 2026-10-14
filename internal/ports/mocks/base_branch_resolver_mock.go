@@ -14,10 +14,19 @@ func NewMockBaseBranchResolver(t interface {
 	mock.TestingT
 	Cleanup(func())
 }) *MockBaseBranchResolver {
+	if helper, ok := t.(interface{ Helper() }); ok {
+		helper.Helper()
+	}
+
 	mock := &MockBaseBranchResolver{}
 	mock.Mock.Test(t)
 
-	t.Cleanup(func() { mock.AssertExpectations(t) })
+	t.Cleanup(func() {
+		if helper, ok := t.(interface{ Helper() }); ok {
+			helper.Helper()
+		}
+		mock.AssertExpectations(t)
+	})
 
 	return mock
 }
@@ -68,7 +77,7 @@ type MockBaseBranchResolver_ResolveBaseBranch_Call struct {
 
 // ResolveBaseBranch is a helper method to define mock.On call
 //   - repoPath string
-func (_e *MockBaseBranchResolver_Expecter) ResolveBaseBranch(repoPath interface{}) *MockBaseBranchResolver_ResolveBaseBranch_Call {
+func (_e *MockBaseBranchResolver_Expecter) ResolveBaseBranch(repoPath any) *MockBaseBranchResolver_ResolveBaseBranch_Call {
 	return &MockBaseBranchResolver_ResolveBaseBranch_Call{Call: _e.mock.On("ResolveBaseBranch", repoPath)}
 }
 

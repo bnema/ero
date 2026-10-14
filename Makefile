@@ -1,4 +1,4 @@
-MOCKERY_VERSION := v3.7.0
+MOCKERY_VERSION := v3.8.1
 
 .PHONY: test fmt tidy mocks install
 
